@@ -1,0 +1,233 @@
+/* global $, patchRequire, XMLHttpRequest, btoa */
+
+'use strict'
+
+var require = patchRequire(require) // eslint-disable-line no-use-before-define
+
+var casper = require('casper').create({
+  logLevel: 'debug',
+  viewportSize: {
+    width: 1280, height: 800
+  }
+})
+
+var fs = require('fs')
+var utils = require('utils')
+
+// require('assert') doesn't seem to work in CasperJS
+function assert (condition, message) {
+  if (!condition) {
+    console.error(message)
+  }
+}
+
+// my.cs.illinois.edu can throw 500 errors when handling certain inputs
+function checkStatus (currentPage) {
+  assert(currentPage.currentHTTPStatus === 200)
+}
+
+var options = {
+  verbose: false
+}
+try {
+  var commandLineOptions = casper.cli.options.course.trim().split('-')
+  options.subject = commandLineOptions[0]
+  options.number = commandLineOptions[1]
+  options.semester = commandLineOptions[2].replace('_', ' ')
+  if (casper.cli.options.sections) {
+    options.sections = casper.cli.options.sections.split(',').map(function(section) {
+      return section.trim()
+    })
+  }
+  options.verbose = casper.verbose = casper.cli.options.verbose
+} catch (err) {
+  console.error(err)
+}
+options.passwords = require('dotenv').parse(fs.read('.env'))
+
+if (options.verbose) {
+  console.log(JSON.stringify(options, null, 2))
+}
+
+
+casper.start('https://my.cs.illinois.edu/index.asp', function waitForLoginForm () {
+  checkStatus(this)
+  this.waitForSelector('form[name="loginform"]')
+})
+casper.then(function fillLogin () {
+  checkStatus(this)
+  this.fill('#loginform', {
+    netid: options.passwords.MY_USERNAME,
+    password: options.passwords.MY_PASSWORD
+  })
+})
+casper.then(function submitLogin () {
+  this.click('#action')
+})
+casper.then(function waitForLoginFill () {
+  checkStatus(this)
+  this.waitForSelector('#clsadm-content')
+})
+
+casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', options.subject, options.number))
+casper.then(function waitForCheckboxes () {
+  checkStatus(this)
+  this.waitForSelector('form[action="/classtools/viewroster.asp"]')
+})
+
+if (!options.sections) {
+  casper.then(function getSections() {
+    this.page.injectJs('jquery/jquery-3.2.1.min.js');
+    options.sections = this.evaluate(function (semester) {
+      var semesterHeader = $(":contains('" + semester + "')")
+        .filter(function() {
+          return $(this).children().length === 0;
+        });
+      var semesterHeaderType = $(semesterHeader).get(0).tagName;
+      var sections = [];
+      $(semesterHeader).nextAll().each(function (unused, element) {
+        if ($(element).is('strong')) {
+          sections.push($(element).text().trim());
+        } else if ($(element).get(0).tagName === semesterHeaderType) {
+          return false;
+        }
+      });
+      return sections;
+    }, options.semester);
+    assert(Array.isArray(options.sections), "sections is not an array");
+    assert(options.sections.length > 0, "sections is empty");
+  });
+}
+
+var students = {}
+casper.then(function rosterPipeline () {
+  casper.each(options.sections, function rosterRetrieval (self, section) {
+    casper.then(function checkBox () {
+      this.page.injectJs('jquery/jquery-3.2.1.min.js')
+      var clicked = this.evaluate(function (semester, section) {
+        var semesterHeader = $(":contains('" + semester + "')")
+          .filter(function () {
+            return $(this).children().length === 0
+          })
+        var semesterHeaderType = $(semesterHeader).get(0).tagName
+        var clicked = 0
+        $(semesterHeader).nextAll().each(function (unused, element) {
+          if (section === $(element).text().trim()) {
+            $(element).prev('input').first().prop('checked', true)
+            clicked++
+          } else if ($(element).get(0).tagName === semesterHeaderType) {
+            return false
+          }
+        })
+        return clicked
+      }, options.semester, section)
+      assert(clicked === 1, 'no section clicked')
+    })
+    casper.then(function submitCheckbox (section) {
+      this.click('input[value="View Roster"]')
+    })
+    casper.then(function waitForRoster () {
+      checkStatus(this)
+      this.waitForSelector('footer', null, null, 180000)
+    })
+
+    var newStudents = {}
+    casper.then(function processRoster () {
+      this.page.injectJs('jquery/jquery-3.2.1.min.js')
+      newStudents = this.evaluate(function () {
+        /* eslint-disable no-undef */
+        var headerMapping = {}
+        $('thead').first().find('th').each(function (index, element) {
+          headerMapping[index] = $(element).text()
+        })
+        var students = {}
+        $('tbody tr').each(function (unused, element) {
+          var student = {}
+          $(element).find('td').each(function (index, element) {
+            student[headerMapping[index]] = $(element).text().trim()
+          })
+          students[student['UIN']] = student
+        })
+        photoRequests = {}
+        transfersComplete = {}
+        return students
+        /* eslint-enable no-undef */
+      })
+    })
+
+    var needImage = []
+    casper.then(function mergeRoster () {
+      Object.keys(newStudents).forEach(function (UIN) {
+        var student = newStudents[UIN]
+        if (!(students[UIN])) {
+          student.classes = [{
+            class: student['Class'],
+            CRN: student['CRN'],
+            credits: student['Credit']
+          }]
+          delete (student['Class'])
+          delete (student['CRN'])
+          delete (student['Credit'])
+          students[UIN] = student
+        } else {
+          var existingStudent = students[UIN]
+          existingStudent.classes.push({
+            class: student['Class'],
+            CRN: student['CRN'],
+            credits: student['Credits']
+          })
+        }
+        if (!(students[UIN].image)) {
+          needImage.push(UIN)
+        }
+      })
+    })
+    /* eslint-disable no-undef */
+    casper.then(function getPhotos () {
+      casper.each(needImage, function (self, UIN) {
+        casper.thenEvaluate(function (UIN) {
+          var photoRequest = new XMLHttpRequest()
+          photoRequest.addEventListener('load', function onTransferComplete () {
+            transfersComplete[UIN] = true
+          })
+          photoRequest.open('GET', 'https://my.cs.illinois.edu/classtools/viewphoto.asp?uin=' + UIN, true)
+          photoRequest.responseType = 'arraybuffer'
+          photoRequest.send(null)
+          photoRequests[UIN] = photoRequest
+        }, UIN)
+        casper.waitFor(function () {
+          var requestFinished = this.evaluate(function (UIN) {
+            return transfersComplete[UIN]
+          }, UIN)
+          return requestFinished
+        })
+        casper.then(function () {
+          var studentBase64 = this.evaluate(function (UIN) {
+            return btoa([].reduce.call(new Uint8Array(photoRequests[UIN].response), function (p, c) {
+              return p + String.fromCharCode(c)
+            }, ''))
+          }, UIN)
+          if (studentBase64 !== null) {
+            students[UIN].image = studentBase64
+          }
+        })
+      })
+    })
+    /* eslint-enable no-undef */
+
+    casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', options.subject, options.number))
+    casper.then(function waitForCheckboxes () {
+      checkStatus(this)
+      this.waitForSelector('form[action="/classtools/viewroster.asp"]')
+    })
+  })
+})
+
+casper.then(function () {
+  console.log(JSON.stringify(students))
+})
+
+
+casper.run()
+
+// vim: et:ts=2:sw=2:ft=javascript
