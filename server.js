@@ -2,10 +2,12 @@
 
 'use strict'
 
-require('dotenv').config()
-const appRootPath = require('app-root-path').toString()
 const _ = require('lodash')
 const debug = require('debug')('people')
+const tmp = require('tmp')
+tmp.setGracefulCleanup()
+const jsYAML = require('js-yaml')
+const fs = require('fs')
 
 const npmPath = require('npm-path')
 const chai = require('chai')
@@ -20,6 +22,7 @@ const stringHash = require('string-hash')
 const mongo = require('mongodb').MongoClient
 const moment = require('moment')
 const deepDiff = require('deep-diff').diff
+const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 
 /*
  * Example object from my.cs.illinois.edu:
@@ -50,31 +53,43 @@ const deepDiff = require('deep-diff').diff
  */
 
 const blankPhoto = '1758209682'
-async function people (config, database) {
-  npmPath.setSync()
+async function people (config) {
+
+  /*
+   * Grab staff info.
+   */
+
+  let staffSheets = await googleSpreadsheetToJSON({
+    spreadsheetId: '1UkEOdYgHRPxlP8uDrQVJRlgbTSRzcWdiPOB5rvtX3mc',
+    credentials: config.secrets.google,
+    propertyMode: 'none',
+    allWorksheets: true
+  })
 
   /*
    * Scrape from my.cs.illinois.edu
    */
-  let command = `casperjs lib/people-my.cs.illinois.edu --course=${config.course}`
+
+  npmPath.setSync()
+  let configFile = tmp.fileSync()
+  fs.writeFileSync(configFile.name, JSON.stringify(config))
+
+  let command = `casperjs lib/get-my.cs.illinois.edu ${ configFile.name }`
   var options = {
     maxBuffer: 1024 * 1024 * 1024,
-    cwd: appRootPath
-  }
-  if (config.sections) {
-    command += ` --sections=${config.sections}`
   }
   if (config.debug) {
-    command += ` --verbose`
     options.stdio = [0, 1, 2]
+    command += ' --verbose'
   }
-  debug(`Running ${command}`)
-  let currentPeople = JSON.parse(childProcess.execSync(command, options).toString())
 
-  // Can't recover the JSON in this case, so just return
+  debug(`Running ${command}`)
   if (config.debug) {
+    // Can't recover the JSON in this case, so just return
+    childProcess.execSync(command, options)
     return
   }
+  let currentPeople = JSON.parse(childProcess.execSync(command, options).toString())
   debug(`Saw ${_.keys(currentPeople).length} people`)
 
   /*
@@ -142,6 +157,9 @@ async function people (config, database) {
   /*
    * Save to Mongo.
    */
+
+  let client = await mongo.connect(config.secrets.mongo)
+  let database = client.database('people')
 
   let stateCollection = database.collection('state')
   let peopleCollection = database.collection(config.collection)
@@ -241,26 +259,17 @@ async function people (config, database) {
     $set: { active: false }
   })
 
-  return stateCollection.save(state)
+  await stateCollection.save(state)
+
+  client.close()
 }
 
-if (require.main === module) {
-  require('dotenv').config()
-  let argv = require('minimist')(process.argv.slice(2))
-  let client
-  mongo.connect(process.env.MONGO)
-    .then(c => {
-      client = c
-      return people(argv, client.db('people'))
-    }).then(() => {
-      client.close()
-    })
-}
-module.exports = (config) => {
-  expect(config.section).to.not.be.ok('section option can only be used when debugging from the comand line')
-  expect(config.reset).to.not.be.ok('reset can only be used from debugging from the command line')
-  expect(config.debug).to.not.be.ok('debug option can only be used from the command line')
-  return people(config)
-}
+let config = _.extend(
+  jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
+  jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
+  require('minimist')(process.argv.slice(2))
+)
+debug(config)
+people(config)
 
 // vim: ts=2:sw=2:et:ft=javascript

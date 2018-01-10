@@ -3,6 +3,7 @@
 'use strict'
 
 var require = patchRequire(require) // eslint-disable-line no-use-before-define
+var _ = require('lodash')
 
 var casper = require('casper').create({
   logLevel: 'debug',
@@ -26,27 +27,34 @@ function checkStatus (currentPage) {
   assert(currentPage.currentHTTPStatus === 200)
 }
 
-var options = {
-  debug: false
-}
 try {
-  var commandLineOptions = casper.cli.options.course.trim().split('-')
-  options.subject = commandLineOptions[0]
-  options.number = commandLineOptions[1]
-  options.semester = commandLineOptions[2].replace('_', ' ')
-  if (casper.cli.options.sections) {
-    options.sections = casper.cli.options.sections.split(',').map(function(section) {
+  var config = {}
+  try {
+    config = JSON.parse(fs.read(casper.cli.args[0]))
+  } catch (err) {
+    console.log(err)
+  }
+  config = _.extend(config, casper.cli.options)
+
+  var courseOptions = config.course.trim().split('-')
+  var subject = courseOptions[0]
+  var number = courseOptions[1]
+  var semester = courseOptions[2].replace('_', ' ')
+
+  var sections
+  if (config.sections) {
+    sections = config.sections.split(',').map(function(section) {
       return section.trim()
     })
   }
-  options.debug = casper.verbose = casper.cli.options.debug
+
+  var debug = casper.verbose = config.debug
 } catch (err) {
   console.error(err)
 }
-options.passwords = require('dotenv').parse(fs.read('.env'))
 
-if (options.debug) {
-  console.log(JSON.stringify(options, null, 2))
+if (debug) {
+  console.log(JSON.stringify(config, null, 2))
 }
 
 casper.start('https://my.cs.illinois.edu/index.asp', function waitForLoginForm () {
@@ -56,8 +64,8 @@ casper.start('https://my.cs.illinois.edu/index.asp', function waitForLoginForm (
 casper.then(function fillLogin () {
   checkStatus(this)
   this.fill('#loginform', {
-    netid: options.passwords.MY_USERNAME,
-    password: options.passwords.MY_PASSWORD
+    netid: config.secrets.students.username,
+    password: config.secrets.students.password
   })
 })
 casper.then(function submitLogin () {
@@ -68,16 +76,16 @@ casper.then(function waitForLoginFill () {
   this.waitForSelector('#clsadm-content')
 })
 
-casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', options.subject, options.number))
+casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', subject, number))
 casper.then(function waitForCheckboxes () {
   checkStatus(this)
   this.waitForSelector('form[action="/classtools/viewroster.asp"]')
 })
 
-if (!options.sections) {
+if (!sections) {
   casper.then(function getSections() {
     this.page.injectJs('jquery/jquery-3.2.1.min.js');
-    options.sections = this.evaluate(function (semester) {
+    sections = this.evaluate(function (semester) {
       var semesterHeader = $(":contains('" + semester + "')")
         .filter(function() {
           return $(this).children().length === 0;
@@ -92,15 +100,15 @@ if (!options.sections) {
         }
       });
       return sections;
-    }, options.semester);
-    assert(Array.isArray(options.sections), "sections is not an array");
-    assert(options.sections.length > 0, "sections is empty");
+    }, semester);
+    assert(Array.isArray(sections), "sections is not an array");
+    assert(sections.length > 0, "sections is empty");
   });
 }
 
 var students = {}
 casper.then(function rosterPipeline () {
-  casper.each(options.sections, function rosterRetrieval (self, section) {
+  casper.each(sections, function rosterRetrieval (self, section) {
     casper.then(function checkBox () {
       this.page.injectJs('jquery/jquery-3.2.1.min.js')
       var clicked = this.evaluate(function (semester, section) {
@@ -119,7 +127,7 @@ casper.then(function rosterPipeline () {
           }
         })
         return clicked
-      }, options.semester, section)
+      }, semester, section)
       assert(clicked === 1, 'no section clicked')
     })
     casper.then(function submitCheckbox (section) {
@@ -214,7 +222,7 @@ casper.then(function rosterPipeline () {
     })
     /* eslint-enable no-undef */
 
-    casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', options.subject, options.number))
+    casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', subject, number))
     casper.then(function waitForCheckboxes () {
       checkStatus(this)
       this.waitForSelector('form[action="/classtools/viewroster.asp"]')
