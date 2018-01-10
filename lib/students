@@ -3,50 +3,23 @@
 'use strict'
 
 require('dotenv').config()
+const appRootPath = require('app-root-path').toString()
 const _ = require('lodash')
 const debug = require('debug')('students')
 
 const npmPath = require('npm-path')
-const expect = require('chai').expect
+const chai = require('chai')
+const expect = chai.expect
+chai.use(require('dirty-chai'))
 const childProcess = require('child_process')
-const path = require('path')
 const emailValidator = require('email-validator')
 const base64JS = require('base64-js')
 const imageType = require('image-type')
 const imageSize = require('image-size')
 const stringHash = require('string-hash')
 
-function infoFromCourse(course) {
-  var match = /^\s*([A-Z]+) (\d+):/.exec(course.name);
-  return {
-    subj: match[1].trim().toLowerCase(),
-    num: match[2].trim(),
-    semester: course.semester,
-    sections: course.sections
-  }
-}
-
-function students(config) {
-  npmPath.setSync()
-
-  let command = `casperjs lib/students-my.cs.illinois.edu --course=${ config.course }`
-  var options = {
-    maxBuffer: 1024 * 1024 * 1024
-  }
-  if (config.sections) {
-    command += ` --sections=${ config.sections }`
-  }
-  if (config.verbose) {
-    command += ` --verbose`;
-    options.stdio = [0, 1, 2]
-  }
-  debug(command)
-  students = JSON.parse(childProcess.execSync(command, options))
-  debug(students)
-}
-
 /*
- * Example student object from my.cs.illinois.edu:
+ * Example object from my.cs.illinois.edu:
  *
  * "Action": "",
  * "Admit Term": "Fall 2017",
@@ -61,103 +34,108 @@ function students(config) {
  * "UIN": "123456789",
  * "Year": "Sophomore",
  * "classes": [
- * 	{
- * 		"class": "CS 125 AL3",
- * 		"CRN": "50158",
- * 		"credits": "4"
- * 	},
- * 	{
- * 		"class": "CS 125 AYT",
- * 		"CRN": "69488"
- * 	}
+ *  {
+ *    "class": "CS 125 AL3",
+ *    "CRN": "50158",
+ *    "credits": "4"
+ *  },
+ *  {
+ *    "class": "CS 125 AYT",
+ *    "CRN": "69488"
+ *  }
  * ],
  */
 
-const blankPhoto = "1758209682";
+const blankPhoto = '1758209682'
+function people (config) {
+  npmPath.setSync()
 
-/*
-function normalize(students, course) {
-  var normalizedStudents = {}, duplicatePhotos = {};
+  let command = `casperjs lib/students-my.cs.illinois.edu --course=${config.course}`
+  var options = {
+    maxBuffer: 1024 * 1024 * 1024,
+    cwd: appRootPath
+  }
+  if (config.sections) {
+    command += ` --sections=${config.sections}`
+  }
+  if (config.debug) {
+    command += ` --verbose`
+    options.stdio = [0, 1, 2]
+  }
+  debug(`Running ${command}`)
+  let currentPeople = JSON.parse(childProcess.execSync(command, options).toString())
 
-  var courseName = /^\s*([A-Z]+\s+\d+):/.exec(course.name)[1];
-  var matchClassName = new RegExp(courseName.trim() + "\\s+(\\w+)");
+  // Can't recover the JSON in this case, so just return
+  if (config.debug) {
+    return
+  }
+  debug(`Saw ${_.keys(currentPeople).length} people`)
 
-  var staff = {};
-  _.each(course.staff, function (s) {
-    staff[s.email] = true;
-  });
+  const matchClassID = new RegExp('\\s+(\\w+)$')
+  let normalizedPeople = _.mapValues(currentPeople, person => {
+    let email = person['Net ID'] + `@illinois.edu`
+    expect(emailValidator.validate(email)).to.be.true()
 
-  _.each(students, function (student) {
-    var email = student['Net ID'] + `@illinois.edu`;
-    if (staff[email]) {
-      debug("Skipping staff member " + email);
-      return;
-    }
-    emailValidator.validate(email).should.be.true;
+    let name = person['Name'].split(',')
+    expect(name).to.have.lengthOf.above(1)
+    let firstName = name[1].trim()
+    let lastName = [name[0].trim(), name.slice(2).join('').trim()].join(' ')
 
-    var name = student['Name'].split(',');
-    name.length.should.be.above(1);
-    var firstName = name[1].trim();
-    var lastName = [name[0].trim(), name.slice(2).join('').trim()].join(' ');
-
-    var normalizedStudent = {
+    let normalizedPerson = {
       email: email,
-			admitted: student['Admit Term'],
-      college: student['College'],
-      degree: student['Degree'],
-      gender: student['Gender'],
-      level: student['Level'],
-      major: student['Major 1 Name'],
-      hidden: (student['FERPA'] === 'Y'),
+      admitted: person['Admit Term'],
+      college: person['College'],
+      degree: person['Degree'],
+      gender: person['Gender'],
+      level: person['Level'],
+      major: person['Major 1 Name'],
+      hidden: (person['FERPA'] === 'Y'),
       name: {
         full: firstName + ' ' + lastName.trim(),
         first: firstName.trim(),
         last: lastName.trim()
       },
-      username: student['Net ID'],
-      ID: student['UIN'],
-      year: student['Year'],
-      classes: (function () {
-        _.each(student.classes, function (c) {
-          c.ID = c['CRN'],
-          c.name = matchClassName.exec(c['class'])[1].trim();
-          delete(c['CRN']);
-          delete(c['class']);
-          if (parseInt(c['credits']) === 0) {
-            delete(c['credits']);
-          }
-        });
-        return student.classes;
-      })(),
-      photo: {
-        contents: student.image,
+      username: person['Net ID'],
+      ID: person['UIN'],
+      year: person['Year'],
+      classes: (() => {
+        _.each(person.classes, (c) => {
+          c.ID = c['CRN']
+          c.name = matchClassID.exec(c['class'].trim())[0].trim()
+          delete (c['CRN'])
+          delete (c['class'])
+          c['credits'] = parseInt(c['credits'])
+        })
+        return person.classes
+      })()
+    }
+    if (stringHash(person.image) !== blankPhoto) {
+      let photoData = base64JS.toByteArray(person.image)
+      let photoType = imageType(photoData)
+      expect(photoType).to.not.be.null()
+      var photoSize = imageSize(Buffer.from(photoData))
+      expect(photoSize).to.not.be.null()
+      normalizedPerson.photo = {
+        contents: person.image,
         type: photoType,
         size: photoSize
       }
     }
-    if (stringHash(student.image) !== blankPhoto) {
-      var photoData = base64JS.toByteArray(student.image);
-      var photoType = imageType(photoData);
-      photoType.should.not.be.null;
-      var photoSize = imageSize(Buffer.from(photoData));
-      photoSize.should.not.be.null;
-      normalizedStudent.photo = {
-        contents: student.image,
-        type: photoType,
-        size: photoSize
-      }
-    }
-    normalizedStudents[email] = normalizedStudent;
-  });
-
-  return normalizedStudents;
+    return normalizedPerson
+  })
+  normalizedPeople = _.mapKeys(normalizedPeople, person => {
+    return person.email
+  })
+  return normalizedPeople
 }
-*/
 
 if (require.main === module) {
   let argv = require('minimist')(process.argv.slice(2))
-  students(argv)
+  people(argv)
 }
-module.exports = students
+module.exports = (config) => {
+  expect(config.debug).to.not.be.ok('debug option can only be used from the command line')
+  return people(config)
+}
 
 // vim: ts=2:sw=2:et:ft=javascript

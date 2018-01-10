@@ -27,7 +27,7 @@ function checkStatus (currentPage) {
 }
 
 var options = {
-  verbose: false
+  debug: false
 }
 try {
   var commandLineOptions = casper.cli.options.course.trim().split('-')
@@ -39,16 +39,15 @@ try {
       return section.trim()
     })
   }
-  options.verbose = casper.verbose = casper.cli.options.verbose
+  options.debug = casper.verbose = casper.cli.options.debug
 } catch (err) {
   console.error(err)
 }
 options.passwords = require('dotenv').parse(fs.read('.env'))
 
-if (options.verbose) {
+if (options.debug) {
   console.log(JSON.stringify(options, null, 2))
 }
-
 
 casper.start('https://my.cs.illinois.edu/index.asp', function waitForLoginForm () {
   checkStatus(this)
@@ -222,11 +221,9 @@ casper.then(function rosterPipeline () {
     })
   })
 })
-
 casper.then(function () {
   console.log(JSON.stringify(students))
 })
-
 
 casper.run()
 
