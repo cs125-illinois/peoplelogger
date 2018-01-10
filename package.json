@@ -9,7 +9,7 @@
     "url": "https://github.com/cs125-illinois/peoplelogger.git"
   },
   "scripts": {
-    "standard": "standard --fix"
+    "standard": "standard lib/*.js --fix --verbose"
   },
   "homepage": "https://github.com/cs125-illinois/peoplelogger",
   "dependencies": {
