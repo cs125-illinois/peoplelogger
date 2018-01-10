@@ -104,7 +104,6 @@ async function people (config) {
   }
   debug(`Running ${addCommand}`)
   childProcess.execSync(addCommand, options)
-  return
 
   /*
    * Scrape from my.cs.illinois.edu
@@ -133,6 +132,7 @@ async function people (config) {
    * Normalize retrieved data.
    */
   const matchClassID = new RegExp('\\s+(\\w+)$')
+  let allSections = {}
   let normalizedPeople = _.mapValues(currentPeople, person => {
     let email = person['Net ID'] + `@illinois.edu`
     expect(emailValidator.validate(email)).to.be.true()
@@ -159,20 +159,19 @@ async function people (config) {
       username: person['Net ID'],
       ID: person['UIN'],
       year: person['Year'],
-      classes: (() => {
-        _.each(person.classes, c => {
+      sections: (() => {
+        return _.reduce(person.classes, (all, c) => {
           c.ID = c['CRN']
           c.name = matchClassID.exec(c['class'].trim())[0].trim()
           delete (c['CRN'])
           delete (c['class'])
           c['credits'] = parseInt(c['credits'])
-        })
-        return person.classes
+          all[c.name] = c
+          allSections[c.name] = true
+          return all
+        }, {})
       })()
     }
-    _.each(person.classes, c => {
-      person[c.name] = true
-    })
     if (stringHash(person.image) !== blankPhoto) {
       let photoData = base64JS.toByteArray(person.image)
       let photoType = imageType(photoData)
@@ -185,22 +184,33 @@ async function people (config) {
         size: photoSize
       }
     }
+    if (TAs.indexOf(email) !== -1) {
+      normalizedPerson.role = 'TA'
+    } else if (developers.indexOf(email) !== -1) {
+      normalizedPerson.role = 'developer'
+    } else if (volunteers.indexOf(email) !== -1) {
+      normalizedPerson.role = 'volunteer'
+    } else {
+      normalizedPerson.role = 'student'
+    }
     return normalizedPerson
   })
   currentPeople = _.mapKeys(normalizedPeople, person => {
     return person.email
   })
+  allSections = _.keys(allSections)
 
   /*
    * Save to Mongo.
    */
 
   let client = await mongo.connect(config.secrets.mongo)
-  let database = client.database('people')
+  let database = client.db('people')
 
   let stateCollection = database.collection('state')
   let peopleCollection = database.collection(config.collection)
   let changesCollection = database.collection(config.collection + "Changes")
+  let enrollmentCollection = database.collection(config.collection + 'Enrollment')
 
   if (config.reset) {
     stateCollection.deleteMany({})
@@ -251,7 +261,7 @@ async function people (config) {
     await changesCollection.insert({
       type: 'joined',
       email: currentPeople[newPerson].email,
-      state: _.omit(state, 'id')
+      state: _.omit(state, '_id')
     })
     if (!(newPerson in allPeople)) {
       return await peopleCollection.insert(prepareForAddition(currentPeople[newPerson]))
@@ -271,7 +281,7 @@ async function people (config) {
       await changesCollection.insert({
         type: 'change',
         email: existingPerson.email,
-        state: _.omit(state, 'id'),
+        state: _.omit(state, '_id'),
         diff: personDiff
       })
     }
@@ -281,7 +291,7 @@ async function people (config) {
     await changesCollection.insert({
       type: 'left',
       email: existingPeople[leftPerson].email,
-      state: _.omit(state, 'id')
+      state: _.omit(state, '_id')
     })
   }))
 
@@ -295,6 +305,20 @@ async function people (config) {
   }, {
     $set: { active: false }
   })
+  let enrollments = {}
+  _.each(allSections, section => {
+    enrollments[section] = _(currentPeople)
+    .filter(person => {
+      return person.role === 'student' && (section in person.sections)
+    })
+    .value().length
+  })
+  enrollments['TAs'] = TAs.length
+  enrollments['volunteers'] = volunteers.length
+  enrollments['developers'] = developers.length
+  enrollments.state = _.omit(state, '_id')
+
+  await enrollmentCollection.insert(enrollments)
 
   await stateCollection.save(state)
 
