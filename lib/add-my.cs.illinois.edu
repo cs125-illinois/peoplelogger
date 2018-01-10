@@ -28,7 +28,7 @@ function checkStatus (currentPage) {
 }
 
 try {
-  let config = {}
+  var config = {}
   try {
     config = JSON.parse(fs.read(casper.cli.args[0]))
   } catch (err) {
@@ -111,7 +111,7 @@ casper.then(function waitForRoster () {
 casper.then(function fillLogin () {
   checkStatus(this)
   this.fill('form', {
-    netid: 'challen'
+    netid: netIDs
   })
 })
 casper.then(function submitLogin () {

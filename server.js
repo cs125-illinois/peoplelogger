@@ -23,6 +23,7 @@ const mongo = require('mongodb').MongoClient
 const moment = require('moment')
 const deepDiff = require('deep-diff').diff
 const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
+const emailAddresses = require('email-addresses')
 
 /*
  * Example object from my.cs.illinois.edu:
@@ -59,37 +60,73 @@ async function people (config) {
    * Grab staff info.
    */
 
-  let staffSheets = await googleSpreadsheetToJSON({
-    spreadsheetId: '1UkEOdYgHRPxlP8uDrQVJRlgbTSRzcWdiPOB5rvtX3mc',
-    credentials: config.secrets.google,
-    propertyMode: 'none',
-    allWorksheets: true
-  })
+  let getStaff = async (name) => {
+    let staff = []
+    let sheet = await googleSpreadsheetToJSON({
+      spreadsheetId: '1UkEOdYgHRPxlP8uDrQVJRlgbTSRzcWdiPOB5rvtX3mc',
+      credentials: config.secrets.google,
+      propertyMode: 'none',
+      worksheet: [ name ]
+    })
+    _.each(sheet, inner => {
+      _.each(inner, person  => {
+        if ('Email' in person) {
+          staff.push(person['Email'])
+        }
+      })
+    })
+    return staff
+  }
+
+  let TAs = await getStaff('TAs')
+  let volunteers = await getStaff('Volunteers')
+  let developers = await getStaff('Developers')
+  let staff = _.union(TAs, volunteers, developers)
 
   /*
-   * Scrape from my.cs.illinois.edu
+   * Add staff to my.cs.illinois.edu
    */
+
+  let staffNetIDs = _.map(staff, email => {
+    return emailAddresses.parseOneAddress(email).local
+  })
 
   npmPath.setSync()
   let configFile = tmp.fileSync()
   fs.writeFileSync(configFile.name, JSON.stringify(config))
-
-  let command = `casperjs lib/get-my.cs.illinois.edu ${ configFile.name }`
+  let addCommand = `casperjs lib/add-my.cs.illinois.edu ${ configFile.name } --netIDs=${ staffNetIDs.join(',') }`
   var options = {
     maxBuffer: 1024 * 1024 * 1024,
   }
   if (config.debug) {
     options.stdio = [0, 1, 2]
-    command += ' --verbose'
+    addCommand += ' --verbose'
+  }
+  debug(`Running ${addCommand}`)
+  childProcess.execSync(addCommand, options)
+  return
+
+  /*
+   * Scrape from my.cs.illinois.edu
+   */
+
+
+  let getCommand = `casperjs lib/get-my.cs.illinois.edu ${ configFile.name }`
+  var options = {
+    maxBuffer: 1024 * 1024 * 1024,
+  }
+  if (config.debug) {
+    options.stdio = [0, 1, 2]
+    getCommand += ' --verbose'
   }
 
-  debug(`Running ${command}`)
+  debug(`Running ${getCommand}`)
   if (config.debug) {
     // Can't recover the JSON in this case, so just return
-    childProcess.execSync(command, options)
+    childProcess.execSync(getCommand, options)
     return
   }
-  let currentPeople = JSON.parse(childProcess.execSync(command, options).toString())
+  let currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
   debug(`Saw ${_.keys(currentPeople).length} people`)
 
   /*
