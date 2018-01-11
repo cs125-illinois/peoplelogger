@@ -25,6 +25,7 @@ const deepDiff = require('deep-diff').diff
 const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 const emailAddresses = require('email-addresses')
 const ip = require('ip')
+const asyncLib = require('async')
 
 /*
  * Example object from my.cs.illinois.edu:
@@ -104,7 +105,10 @@ async function people (config) {
     addCommand += ' --verbose'
   }
   debug(`Running ${addCommand}`)
-  childProcess.execSync(addCommand, options)
+  try {
+    childProcess.execSync(addCommand, options)
+  } catch (err) {
+  }
 
   /*
    * Scrape from my.cs.illinois.edu
@@ -361,6 +365,7 @@ async function mailman(config) {
     fs.writeFileSync(membersFile, _.map(members, p => {
       return `"${ p.name.full }" <${ p.email }>`
     }).join('\n'))
+    debug(`${ name } has ${ _.keys(members).length } members`)
     childProcess.execSync(`sudo remove_members -a -n -N ${ name } 2>/dev/null`)
     childProcess.execSync(`sudo add_members -w n -a n -r ${ membersFile } ${ name } 2>/dev/null`)
     childProcess.execSync(`sudo withlist -r set_mod ${ name } -s -a 2>/dev/null`)
@@ -395,10 +400,24 @@ let config = _.extend(
 debug(_.omit(config, 'secrets'))
 
 if (argv._.length === 0 && argv.oneshot) {
-  people(config)
-  mailman(config)
-} else {
+  people(config).then(() => {
+    mailman(config)
+  })
+} else if (argv.oneshot) {
   eval(argv._[0])(config)
+} else {
+  let queue = asyncLib.queue((unused, callback) => {
+    people(config).then(() => {
+      mailman(config)
+    })
+    callback()
+  }, 1)
+
+  let CronJob = require('cron').CronJob
+  let job = new CronJob('0 0 * * * *', async () => {
+    queue.push({})
+  }, null, true, 'America/Chicago')
+  queue.push({})
 }
 
 // vim: ts=2:sw=2:et:ft=javascript
