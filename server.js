@@ -26,7 +26,7 @@ const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 const emailAddresses = require('email-addresses')
 const ip = require('ip')
 const asyncLib = require('async')
-const confirmSimple = require('confirm-simple')
+const promptly = require('promptly')
 
 const bunyan = require('bunyan')
 const log = bunyan.createLogger({
@@ -74,9 +74,28 @@ const blankPhoto = '1758209682'
 async function people (config) {
 
   /*
+   * Initialize mongo.
+   */
+  let client = await mongo.connect(config.secrets.mongo)
+  let database = client.db('people')
+
+  let stateCollection = database.collection('state')
+  let peopleCollection = database.collection(config.collection)
+  let changesCollection = database.collection(config.collection + "Changes")
+  let enrollmentCollection = database.collection(config.collection + 'Enrollment')
+
+  if (config.reset) {
+    let reset = await promptly.choose('are you sure you want to reset the database?', ['yes', 'no'])
+    if (reset === 'yes') {
+      stateCollection.deleteMany({})
+      peopleCollection.deleteMany({})
+      changesCollection.deleteMany({})
+    }
+  }
+
+  /*
    * Grab staff info.
    */
-
   let getStaff = async (name) => {
     let staff = []
     let sheet = await googleSpreadsheetToJSON({
@@ -96,10 +115,10 @@ async function people (config) {
   }
 
   try {
-    let TAs = await getStaff('TAs')
-    let volunteers = await getStaff('Volunteers')
-    let developers = await getStaff('Developers')
-    let staff = _.union(TAs, volunteers, developers)
+    var TAs = await getStaff('TAs')
+    var volunteers = await getStaff('Volunteers')
+    var developers = await getStaff('Developers')
+    var staff = _.union(TAs, volunteers, developers)
   } catch (err) {
     log.debug(err)
     return
@@ -108,7 +127,6 @@ async function people (config) {
   /*
    * Add staff to my.cs.illinois.edu
    */
-
   let staffNetIDs = _.map(staff, email => {
     return emailAddresses.parseOneAddress(email).local
   })
@@ -135,8 +153,6 @@ async function people (config) {
   /*
    * Scrape from my.cs.illinois.edu
    */
-
-
   let getCommand = `casperjs lib/get-my.cs.illinois.edu ${ configFile.name }`
   var options = {
     maxBuffer: 1024 * 1024 * 1024,
@@ -237,24 +253,6 @@ async function people (config) {
   /*
    * Save to Mongo.
    */
-
-  let client = await mongo.connect(config.secrets.mongo)
-  let database = client.db('people')
-
-  let stateCollection = database.collection('state')
-  let peopleCollection = database.collection(config.collection)
-  let changesCollection = database.collection(config.collection + "Changes")
-  let enrollmentCollection = database.collection(config.collection + 'Enrollment')
-
-  if (config.reset) {
-    let reset = await confirmSimple('are you sure you want to reset the database?' ['yes', 'no'])
-    if (reset) {
-      stateCollection.deleteMany({})
-      peopleCollection.deleteMany({})
-      changesCollection.deleteMany({})
-    }
-  }
-
   let state = await stateCollection.findOne({ _id: config.collection })
   if (state === null) {
     state = {
