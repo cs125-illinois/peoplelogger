@@ -356,7 +356,7 @@ async function mailman(config) {
   }
   let syncList = (name, members, moderators) => {
     members = _.extend(_.clone(members), instructors)
-    moderators = _.extend(_.clone(moderators), instructors)
+    moderators = _.map(_.extend(_.clone(moderators), instructors), 'email')
     let membersFile = tmp.fileSync().name
     fs.writeFileSync(membersFile, _.map(members, p => {
       return `"${ p.name.full }" <${ p.email }>`
@@ -364,7 +364,7 @@ async function mailman(config) {
     childProcess.execSync(`sudo remove_members -a -n -N ${ name } 2>/dev/null`)
     childProcess.execSync(`sudo add_members -w n -a n -r ${ membersFile } ${ name } 2>/dev/null`)
     childProcess.execSync(`sudo withlist -r set_mod ${ name } -s -a 2>/dev/null`)
-    childProcess.execSync(`sudo withlist -r set_mod ${ name } -u ${ listModerators.join(' ')}  2>/dev/null`)
+    childProcess.execSync(`sudo withlist -r set_mod ${ name } -u ${ moderators.join(' ')}  2>/dev/null`)
   }
   let TAs = _.pickBy(existingPeople, person => {
     return person.role === 'TA'
@@ -379,9 +379,11 @@ async function mailman(config) {
     return person.role === 'student'
   })
   syncList('staff', TAs, TAs)
-  syncList('volunteers', volunteers)
+  syncList('assistants', volunteers)
   syncList('developers', developers)
   syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
+
+  client.close()
 }
 
 let argv = require('minimist')(process.argv.slice(2))
