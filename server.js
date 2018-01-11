@@ -90,6 +90,8 @@ async function people (config) {
       stateCollection.deleteMany({})
       peopleCollection.deleteMany({})
       changesCollection.deleteMany({})
+    } else {
+      debug('skipping reset')
     }
   }
 
@@ -137,6 +139,7 @@ async function people (config) {
   let addCommand = `casperjs lib/add-my.cs.illinois.edu ${ configFile.name } --netIDs=${ staffNetIDs.join(',') }`
   var options = {
     maxBuffer: 1024 * 1024 * 1024,
+    timeout: 10 * 60 * 1000
   }
   if (config.debug) {
     options.stdio = [0, 1, 2]
@@ -156,6 +159,7 @@ async function people (config) {
   let getCommand = `casperjs lib/get-my.cs.illinois.edu ${ configFile.name }`
   var options = {
     maxBuffer: 1024 * 1024 * 1024,
+    timeout: 10 * 60 * 1000
   }
   if (config.debug) {
     options.stdio = [0, 1, 2]
@@ -169,13 +173,14 @@ async function people (config) {
     return
   }
   try {
-    let currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
+    var currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
   } catch (err) {
     log.debug(err)
     // Throw to make sure that we don't run the mailman task again
     throw err
     return
   }
+  expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
   debug(`Saw ${_.keys(currentPeople).length} people`)
 
   /*
@@ -433,6 +438,7 @@ let queue = asyncLib.queue((unused, callback) => {
   people(config).then(() => {
     mailman(config)
   }).catch(err => {
+    debug(err)
     log.debug(err)
   })
   callback()
