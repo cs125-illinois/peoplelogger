@@ -392,7 +392,7 @@ let config = _.extend(
 )
 debug(_.omit(config, 'secrets'))
 
-if (argv._.length === 0) {
+if (argv._.length === 0 && argv.oneshot) {
   people(config)
   mailman(config)
 } else {
