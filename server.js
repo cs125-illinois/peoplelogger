@@ -26,6 +26,21 @@ const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 const emailAddresses = require('email-addresses')
 const ip = require('ip')
 const asyncLib = require('async')
+const confirmSimple = require('confirm-simple')
+
+const bunyan = require('bunyan')
+const log = bunyan.createLogger({
+  name: 'peoplelogger',
+  streams: [
+    {
+      type: 'rotating-file',
+      path: 'logs/peoplelogger.log',
+      period: '1d',
+      count: 365,
+      level: 'info'
+    }
+  ]
+})
 
 /*
  * Example object from my.cs.illinois.edu:
@@ -80,10 +95,15 @@ async function people (config) {
     return staff
   }
 
-  let TAs = await getStaff('TAs')
-  let volunteers = await getStaff('Volunteers')
-  let developers = await getStaff('Developers')
-  let staff = _.union(TAs, volunteers, developers)
+  try {
+    let TAs = await getStaff('TAs')
+    let volunteers = await getStaff('Volunteers')
+    let developers = await getStaff('Developers')
+    let staff = _.union(TAs, volunteers, developers)
+  } catch (err) {
+    log.debug(err)
+    return
+  }
 
   /*
    * Add staff to my.cs.illinois.edu
@@ -108,6 +128,8 @@ async function people (config) {
   try {
     childProcess.execSync(addCommand, options)
   } catch (err) {
+    log.debug(err)
+    // It's safe to continue here
   }
 
   /*
@@ -130,7 +152,14 @@ async function people (config) {
     childProcess.execSync(getCommand, options)
     return
   }
-  let currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
+  try {
+    let currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
+  } catch (err) {
+    log.debug(err)
+    // Throw to make sure that we don't run the mailman task again
+    throw err
+    return
+  }
   debug(`Saw ${_.keys(currentPeople).length} people`)
 
   /*
@@ -218,9 +247,12 @@ async function people (config) {
   let enrollmentCollection = database.collection(config.collection + 'Enrollment')
 
   if (config.reset) {
-    stateCollection.deleteMany({})
-    peopleCollection.deleteMany({})
-    changesCollection.deleteMany({})
+    let reset = await confirmSimple('are you sure you want to reset the database?' ['yes', 'no'])
+    if (reset) {
+      stateCollection.deleteMany({})
+      peopleCollection.deleteMany({})
+      changesCollection.deleteMany({})
+    }
   }
 
   let state = await stateCollection.findOne({ _id: config.collection })
@@ -399,20 +431,20 @@ let config = _.extend(
 )
 debug(_.omit(config, 'secrets'))
 
-if (argv._.length === 0 && argv.oneshot) {
+let queue = asyncLib.queue((unused, callback) => {
   people(config).then(() => {
     mailman(config)
+  }).catch(err => {
+    log.debug(err)
   })
+  callback()
+}, 1)
+
+if (argv._.length === 0 && argv.oneshot) {
+  queue.push({})
 } else if (argv.oneshot) {
   eval(argv._[0])(config)
 } else {
-  let queue = asyncLib.queue((unused, callback) => {
-    people(config).then(() => {
-      mailman(config)
-    })
-    callback()
-  }, 1)
-
   let CronJob = require('cron').CronJob
   let job = new CronJob('0 0 * * * *', async () => {
     queue.push({})
