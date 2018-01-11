@@ -24,6 +24,7 @@ const moment = require('moment')
 const deepDiff = require('deep-diff').diff
 const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 const emailAddresses = require('email-addresses')
+const ip = require('ip')
 
 /*
  * Example object from my.cs.illinois.edu:
@@ -295,6 +296,11 @@ async function people (config) {
     })
   }))
 
+  await changesCollection.insert({
+    type: 'counter',
+    state: _.omit(state, '_id')
+  })
+
   await peopleCollection.updateMany({
     "state.counter": { $eq : state.counter },
   }, {
@@ -319,18 +325,78 @@ async function people (config) {
   enrollments.state = _.omit(state, '_id')
 
   await enrollmentCollection.insert(enrollments)
-
   await stateCollection.save(state)
 
   client.close()
 }
 
+async function mailman(config) {
+  /*
+   * Update mailman lists.
+   */
+  if (ip.address() !== config.server) {
+    debug(`skipping mailman since we are not on the mail server`)
+    return
+  }
+  let client = await mongo.connect(config.secrets.mongo)
+  let database = client.db('people')
+  let peopleCollection = database.collection(config.collection)
+
+  let existingPeople = await peopleCollection.find({
+    active: true
+  }).toArray()
+
+  let instructors = {
+    'challen@illinois.edu': {
+      name: {
+        full: "Geoffrey Challen"
+      },
+      email: 'challen@illinois.edu'
+    }
+  }
+  let syncList = (name, members, moderators) => {
+    members = _.extend(_.clone(members), instructors)
+    moderators = _.extend(_.clone(moderators), instructors)
+    let membersFile = tmp.fileSync().name
+    fs.writeFileSync(membersFile, _.map(members, p => {
+      return `"${ p.name.full }" <${ p.email }>`
+    }).join('\n'))
+    childProcess.execSync(`sudo remove_members -a -n -N ${ name } 2>/dev/null`)
+    childProcess.execSync(`sudo add_members -w n -a n -r ${ membersFile } ${ name } 2>/dev/null`)
+    childProcess.execSync(`sudo withlist -r set_mod ${ name } -s -a 2>/dev/null`)
+    childProcess.execSync(`sudo withlist -r set_mod ${ name } -u ${ listModerators.join(' ')}  2>/dev/null`)
+  }
+  let TAs = _.pickBy(existingPeople, person => {
+    return person.role === 'TA'
+  })
+  let volunteers = _.pickBy(existingPeople, person => {
+    return person.role === 'volunteer'
+  })
+  let developers = _.pickBy(existingPeople, person => {
+    return person.role === 'developer'
+  })
+  let students = _.pickBy(existingPeople, person => {
+    return person.role === 'student'
+  })
+  syncList('staff', TAs, TAs)
+  syncList('volunteers', volunteers)
+  syncList('developers', developers)
+  syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
+}
+
+let argv = require('minimist')(process.argv.slice(2))
 let config = _.extend(
   jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
   jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
-  require('minimist')(process.argv.slice(2))
+  argv
 )
-debug(config)
-people(config)
+debug(_.omit(config, 'secrets'))
+
+if (argv._.length === 0) {
+  people(config)
+  mailman(config)
+} else {
+  eval(argv._[0])(config)
+}
 
 // vim: ts=2:sw=2:et:ft=javascript

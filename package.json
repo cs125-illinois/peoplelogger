@@ -27,6 +27,7 @@
     "google-spreadsheet-to-json": "^1.0.0",
     "image-size": "^0.6.2",
     "image-type": "^3.0.0",
+    "ip": "^1.1.5",
     "js-yaml": "^3.10.0",
     "lodash": "^4.17.4",
     "minimist": "^1.2.0",
