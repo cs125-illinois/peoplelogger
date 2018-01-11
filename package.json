@@ -39,7 +39,9 @@
     "promptly": "^2.2.0",
     "query-string": "^5.0.1",
     "request-json": "^0.6.2",
+    "sleep": "^5.1.1",
     "standard": "^10.0.3",
+    "strict-password-generator": "^1.1.0",
     "string-hash": "^1.1.3",
     "tmp": "0.0.33",
     "yamljs": "^0.3.0"

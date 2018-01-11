@@ -29,6 +29,9 @@ const asyncLib = require('async')
 const promptly = require('promptly')
 const requestJSON = require('request-json')
 const queryString = require('query-string')
+const strictPasswordGenerator = require('strict-password-generator').default
+const passwordGenerator = new strictPasswordGenerator()
+const sleep = require('sleep')
 
 const bunyan = require('bunyan')
 const log = bunyan.createLogger({
@@ -71,6 +74,23 @@ const log = bunyan.createLogger({
  *  }
  * ],
  */
+
+async function getExistingPeople (collection) {
+  if (!collection) {
+    var client = await mongo.connect(config.secrets.mongo)
+    collection = client.db('people').collection(config.collection)
+  }
+  let people = _.reduce(await collection.find({
+      active: true
+    }).toArray(), (people, person) => {
+      people[person.email] = person
+      return people
+    }, {})
+  if (client) {
+    client.close()
+  }
+  return people
+}
 
 const blankPhoto = '1758209682'
 async function people (config) {
@@ -379,13 +399,7 @@ async function mailman(config) {
     debug(`skipping mailman since we are not on the mail server`)
     return
   }
-  let client = await mongo.connect(config.secrets.mongo)
-  let database = client.db('people')
-  let peopleCollection = database.collection(config.collection)
-
-  let existingPeople = await peopleCollection.find({
-    active: true
-  }).toArray()
+  let existingPeople = await getExistingPeople()
 
   let instructors = {
     'challen@illinois.edu': {
@@ -424,29 +438,21 @@ async function mailman(config) {
   syncList('assistants', volunteers)
   syncList('developers', developers)
   syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
-
-  client.close()
 }
 
+const passwordOptions = { minimumLength: 10, maximumLength: 12 }
 async function discourse(config) {
-  /*
-  let client = await mongo.connect(config.secrets.mongo)
-  let database = client.db('people')
-  let peopleCollection = database.collection(config.collection)
+  let existingPeople = await getExistingPeople()
 
-  let existingPeople = await peopleCollection.find({
-    active: true
-  }).toArray()
   let moderators = _.pickBy(existingPeople, person => {
     return person.role === 'TA' || person.role === 'volunteer' || person.role === 'developer'
   })
   let users = _.pickBy(existingPeople, person => {
     return person.role === 'student'
   })
-  let all = _.extend(_.clone(moderators), users)
-  */
+  existingPeople = _.extend(_.clone(moderators), users)
 
-  const discourse = requestJSON.createClient(config.discourse)
+  let discourse = requestJSON.createClient(config.discourse)
   let callDiscourseAPI = async (verb, path, query, body) => {
     if (query === null) {
       query = {}
@@ -458,10 +464,19 @@ async function discourse(config) {
     path += '?' + queryString.stringify(query)
     debug(path)
 
-    if (verb === 'get') {
-      var result = await discourse.get(path)
-    } else if (verb === 'put' || verb === 'post') {
-      var result = await discourse[verb](path, body)
+    for (let retry = 0; retry < 15; retry++) {
+      if (verb === 'get') {
+        var result = await discourse.get(path)
+      } else if (verb === 'put' || verb === 'post') {
+        var result = await discourse[verb](path, body)
+      }
+      if (result.res.statusCode === 429 || result.res.statusCode === 500) {
+        debug(`Sleeping for ${ result.res.statusCode }`)
+        discourse = requestJSON.createClient(config.discourse)
+        sleep.sleep(5)
+      } else {
+        break
+      }
     }
     expect(result.res.statusCode).to.equal(200)
     return result.body
@@ -471,8 +486,8 @@ async function discourse(config) {
     enable_local_logins: true
   })
 
-  let discourseUsers = {}
-  await (async () => {
+  let getAllUsers = async () => {
+    let discoursePeople = {}
     for (let page = 0; ; page++) {
       let newUsers = await callDiscourseAPI('get', 'admin/users/list/active.json', {
         show_emails: true, page: page + 1
@@ -481,24 +496,140 @@ async function discourse(config) {
         break
       }
       _.each(newUsers, user => {
-        if (user.id <= 0) {
+        if (user.id <= 0 || user.admin) {
           return
         }
         expect(emailValidator.validate(user.email)).to.be.true()
         if (emailAddresses.parseOneAddress(user.email).domain !== 'illinois.edu') {
           return
         }
-        discourseUsers[user.email] = user
+        discoursePeople[user.email] = user
       })
     }
-  })()
-  debug(`Retrieved ${ _.keys(discourseUsers).length } users`)
+    return discoursePeople
+  }
+
+  /*
+   * Create new users.
+   */
+  let discoursePeople = await getAllUsers()
+  debug(`Retrieved ${ _.keys(discoursePeople).length } users`)
+  let create = _.difference(_.keys(existingPeople), _.keys(discoursePeople))
+  if (create.length > 0) {
+    debug(`Creating ${ create.length }`)
+    let createUsers = async create => {
+      for (let user of _.values(_.pick(existingPeople, create))) {
+        await callDiscourseAPI('post', 'users', null, {
+          name: user.name.full,
+          email: user.email,
+          username: emailAddresses.parseOneAddress(user.email).local,
+          password: passwordGenerator.generatePassword(passwordOptions),
+          active: 1,
+          approved: 1
+        })
+      }
+    }
+    await createUsers(create)
+
+    discoursePeople = await getAllUsers()
+    create = _.difference(_.keys(existingPeople), _.keys(discoursePeople))
+    expect(create).to.have.lengthOf(0)
+  }
+
+  /*
+   * Suspend users that have left.
+   */
+  let activeDiscoursePeople = _.pickBy(discoursePeople, user => {
+    return !user.suspended
+  })
+  debug(`${ _.keys(activeDiscoursePeople).length } are active`)
+  let suspend = _.difference(_.keys(activeDiscoursePeople), _.keys(existingPeople))
+  if (suspend.length > 0) {
+    debug(`Suspending ${ suspend.length }`)
+    let suspendUsers = async suspend => {
+      for (let user of _.values(_.pick(discoursePeople, suspend))) {
+        await callDiscourseAPI('post', `admin/users/${ user.id }/log_out`, null, {})
+        if (user.moderator) {
+          await callDiscourseAPI('put', `admin/users/${ user.id }/revoke_moderation`)
+        }
+        await callDiscourseAPI('put', `admin/users/${ user.id }/suspend`, null, {
+          suspend_until: "3017-10-19 08:00",
+          reason: 'No Longer In CS 125'
+        })
+      }
+    }
+    await suspendUsers(suspend)
+
+    discoursePeople = await getAllUsers()
+    activeDiscoursePeople = _.pickBy(discoursePeople, user => {
+      return !user.suspended
+    })
+    suspend = _.difference(_.keys(activeDiscoursePeople), _.keys(existingPeople))
+    expect(suspend).to.have.lengthOf(0)
+  }
+
+  /*
+   * Reactivate suspended users.
+   */
+  let reactivate = _.difference(_.keys(existingPeople), _.keys(activeDiscoursePeople))
+  if (reactivate.length > 0) {
+    debug(`Reactivating ${ reactivate.length }`)
+    let reactivateUsers = async reactivate => {
+      for (let user of _.values(_.pick(discoursePeople, reactivate))) {
+        await callDiscourseAPI('put', `admin/users/${ user.id }/unsuspend`, null, {})
+      }
+    }
+    await reactivateUsers(reactivate)
+
+    discoursePeople = await getAllUsers()
+    activeDiscoursePeople = _.pickBy(discoursePeople, user => {
+      return !user.suspended
+    })
+    reactivate = _.difference(_.keys(existingPeople), _.keys(activeDiscoursePeople))
+    expect(reactivate).to.have.lengthOf(0)
+  }
+
+  /*
+   * Set up moderators properly
+   */
+  let discourseModerators = _.pickBy(discoursePeople, user => {
+    return user.moderator
+  })
+  debug(`Forum has ${ _.keys(discourseModerators).length } moderators`)
+  let missingModerators = _.difference(_.keys(moderators), _.keys(discourseModerators))
+  if (missingModerators.length > 0) {
+    debug(`Adding ${ missingModerators.length } moderators`)
+    let addModerators = async moderators => {
+      for (let user of _.values(_.pick(discoursePeople, moderators))) {
+        await callDiscourseAPI('put', `admin/users/${ user.id }/grant_moderation`)
+      }
+    }
+    await addModerators(missingModerators)
+  }
+  let extraModerators = _.difference(_.keys(discourseModerators), _.keys(moderators))
+  if (extraModerators.length > 0) {
+    debug(`Removing ${ extraModerators.length } moderators`)
+    let removeModerators = async moderators => {
+      for (let user of _.values(_.pick(discoursePeople, moderators))) {
+        await callDiscourseAPI('put', `admin/users/${ user.id }/revoke_moderation`)
+      }
+    }
+    await removeModerators(extraModerators)
+  }
+  if (missingModerators.length > 0 || extraModerators > 0) {
+    discoursePeople = await getAllUsers()
+    discourseModerators = _.pickBy(discoursePeople, user => {
+      return user.moderator
+    })
+    missingModerators = _.difference(_.keys(moderators), _.keys(discourseModerators))
+    extraModerators = _.difference(_.keys(discourseModerators), _.keys(moderators))
+    expect(missingModerators).to.have.lengthOf(0)
+    expect(extraModerators).to.have.lengthOf(0)
+  }
 
   await callDiscourseAPI('put', 'admin/site_settings/enable_local_logins', null, {
     enable_local_logins: false
   })
-
-  // client.close()
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -512,6 +643,8 @@ debug(_.omit(config, 'secrets'))
 let queue = asyncLib.queue((unused, callback) => {
   people(config).then(() => {
     mailman(config)
+  }).then(() => {
+    discourse(config)
   }).catch(err => {
     debug(err)
     log.debug(err)
