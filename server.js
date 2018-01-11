@@ -3,7 +3,7 @@
 'use strict'
 
 const _ = require('lodash')
-const debug = require('debug')('people')
+const debug = require('debug')('peoplelogger')
 const tmp = require('tmp')
 tmp.setGracefulCleanup()
 const jsYAML = require('js-yaml')
@@ -27,6 +27,8 @@ const emailAddresses = require('email-addresses')
 const ip = require('ip')
 const asyncLib = require('async')
 const promptly = require('promptly')
+const requestJSON = require('request-json')
+const queryString = require('query-string')
 
 const bunyan = require('bunyan')
 const log = bunyan.createLogger({
@@ -85,13 +87,13 @@ async function people (config) {
   let enrollmentCollection = database.collection(config.collection + 'Enrollment')
 
   if (config.reset) {
-    let reset = await promptly.choose('are you sure you want to reset the database?', ['yes', 'no'])
+    let reset = await promptly.choose('Are you sure you want to reset the database?', ['yes', 'no'])
     if (reset === 'yes') {
       stateCollection.deleteMany({})
       peopleCollection.deleteMany({})
       changesCollection.deleteMany({})
     } else {
-      debug('skipping reset')
+      debug('Skipping reset')
     }
   }
 
@@ -424,6 +426,79 @@ async function mailman(config) {
   syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
 
   client.close()
+}
+
+async function discourse(config) {
+  /*
+  let client = await mongo.connect(config.secrets.mongo)
+  let database = client.db('people')
+  let peopleCollection = database.collection(config.collection)
+
+  let existingPeople = await peopleCollection.find({
+    active: true
+  }).toArray()
+  let moderators = _.pickBy(existingPeople, person => {
+    return person.role === 'TA' || person.role === 'volunteer' || person.role === 'developer'
+  })
+  let users = _.pickBy(existingPeople, person => {
+    return person.role === 'student'
+  })
+  let all = _.extend(_.clone(moderators), users)
+  */
+
+  const discourse = requestJSON.createClient(config.discourse)
+  let callDiscourseAPI = async (verb, path, query, body) => {
+    if (query === null) {
+      query = {}
+    }
+    query = _.extend(_.clone(query), {
+      api_username: config.secrets.discourse.username,
+      api_key: config.secrets.discourse.key
+    })
+    path += '?' + queryString.stringify(query)
+    debug(path)
+
+    if (verb === 'get') {
+      var result = await discourse.get(path)
+    } else if (verb === 'put' || verb === 'post') {
+      var result = await discourse[verb](path, body)
+    }
+    expect(result.res.statusCode).to.equal(200)
+    return result.body
+  }
+
+  await callDiscourseAPI('put', 'admin/site_settings/enable_local_logins', null, {
+    enable_local_logins: true
+  })
+
+  let discourseUsers = {}
+  await (async () => {
+    for (let page = 0; ; page++) {
+      let newUsers = await callDiscourseAPI('get', 'admin/users/list/active.json', {
+        show_emails: true, page: page + 1
+      })
+      if (newUsers.length === 0) {
+        break
+      }
+      _.each(newUsers, user => {
+        if (user.id <= 0) {
+          return
+        }
+        expect(emailValidator.validate(user.email)).to.be.true()
+        if (emailAddresses.parseOneAddress(user.email).domain !== 'illinois.edu') {
+          return
+        }
+        discourseUsers[user.email] = user
+      })
+    }
+  })()
+  debug(`Retrieved ${ _.keys(discourseUsers).length } users`)
+
+  await callDiscourseAPI('put', 'admin/site_settings/enable_local_logins', null, {
+    enable_local_logins: false
+  })
+
+  // client.close()
 }
 
 let argv = require('minimist')(process.argv.slice(2))
