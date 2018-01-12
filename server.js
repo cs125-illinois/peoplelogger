@@ -78,7 +78,7 @@ const log = bunyan.createLogger({
 async function getExistingPeople (collection) {
   if (!collection) {
     var client = await mongo.connect(config.secrets.mongo)
-    collection = client.db('people').collection(config.collection)
+    collection = client.db(config.database).collection('people')
   }
   let people = _.reduce(await collection.find({
       active: true
@@ -99,12 +99,12 @@ async function people (config) {
    * Initialize mongo.
    */
   let client = await mongo.connect(config.secrets.mongo)
-  let database = client.db('people')
+  let database = client.db(config.database)
 
   let stateCollection = database.collection('state')
-  let peopleCollection = database.collection(config.collection)
-  let changesCollection = database.collection(config.collection + "Changes")
-  let enrollmentCollection = database.collection(config.collection + 'Enrollment')
+  let peopleCollection = database.collection('people')
+  let changesCollection = database.collection('peopleChanges')
+  let enrollmentCollection = database.collection('enrollment')
 
   if (config.reset) {
     let reset = await promptly.choose('Are you sure you want to reset the database?', ['yes', 'no'])
@@ -123,7 +123,7 @@ async function people (config) {
   let getStaff = async (name) => {
     let staff = []
     let sheet = await googleSpreadsheetToJSON({
-      spreadsheetId: '1UkEOdYgHRPxlP8uDrQVJRlgbTSRzcWdiPOB5rvtX3mc',
+      spreadsheetId: config.sheet,
       credentials: config.secrets.google,
       propertyMode: 'none',
       worksheet: [ name ]
