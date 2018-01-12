@@ -3,7 +3,6 @@
 'use strict'
 
 const _ = require('lodash')
-const debug = require('debug')('peoplelogger')
 const tmp = require('tmp')
 tmp.setGracefulCleanup()
 const jsYAML = require('js-yaml')
@@ -113,7 +112,7 @@ async function people (config) {
       peopleCollection.deleteMany({})
       changesCollection.deleteMany({})
     } else {
-      debug('Skipping reset')
+      log.debug('Skipping reset')
     }
   }
 
@@ -144,7 +143,7 @@ async function people (config) {
     var developers = await getStaff('Developers')
     var staff = _.union(TAs, volunteers, developers)
   } catch (err) {
-    log.debug(err)
+    throw(err)
     return
   }
 
@@ -163,15 +162,15 @@ async function people (config) {
     maxBuffer: 1024 * 1024 * 1024,
     timeout: 10 * 60 * 1000
   }
-  if (config.debug) {
+  if (config.debugGet) {
     options.stdio = [0, 1, 2]
     addCommand += ' --verbose'
   }
-  debug(`Running ${addCommand}`)
+  log.debug(`Running ${addCommand}`)
   try {
     childProcess.execSync(addCommand, options)
   } catch (err) {
-    log.debug(err)
+    log.warn(err)
     // It's safe to continue here
   }
 
@@ -183,13 +182,13 @@ async function people (config) {
     maxBuffer: 1024 * 1024 * 1024,
     timeout: 10 * 60 * 1000
   }
-  if (config.debug) {
+  if (config.debugGet) {
     options.stdio = [0, 1, 2]
     getCommand += ' --verbose'
   }
 
-  debug(`Running ${getCommand}`)
-  if (config.debug) {
+  log.debug(`Running ${getCommand}`)
+  if (config.debugGet) {
     // Can't recover the JSON in this case, so just return
     childProcess.execSync(getCommand, options)
     return
@@ -197,13 +196,12 @@ async function people (config) {
   try {
     var currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
   } catch (err) {
-    log.debug(err)
-    // Throw to make sure that we don't run the mailman task again
+    // Throw to make sure that we don't run other tasks
     throw err
     return
   }
   expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
-  debug(`Saw ${_.keys(currentPeople).length} people`)
+  log.debug(`Saw ${_.keys(currentPeople).length} people`)
 
   /*
    * Normalize retrieved data.
@@ -311,7 +309,7 @@ async function people (config) {
   let joined = _.difference(_.keys(currentPeople), _.keys(existingPeople))
   let left = _.difference(_.keys(existingPeople), _.keys(currentPeople))
   let same = _.intersection(_.keys(currentPeople), _.keys(existingPeople))
-  debug(`${ left.length } left, ${ joined.length } joined, ${ same.length } same`)
+  log.debug(`${ left.length } left, ${ joined.length } joined, ${ same.length } same`)
 
   let prepareForAddition = (person) => {
     person._id = person.email
@@ -396,7 +394,7 @@ async function mailman(config) {
    * Update mailman lists.
    */
   if (ip.address() !== config.server) {
-    debug(`skipping mailman since we are not on the mail server`)
+    log.warn(`skipping mailman since we are not on the mail server`)
     return
   }
   let existingPeople = await getExistingPeople()
@@ -416,7 +414,7 @@ async function mailman(config) {
     fs.writeFileSync(membersFile, _.map(members, p => {
       return `"${ p.name.full }" <${ p.email }>`
     }).join('\n'))
-    debug(`${ name } has ${ _.keys(members).length } members`)
+    log.debug(`${ name } has ${ _.keys(members).length } members`)
     childProcess.execSync(`sudo remove_members -a -n -N ${ name } 2>/dev/null`)
     childProcess.execSync(`sudo add_members -w n -a n -r ${ membersFile } ${ name } 2>/dev/null`)
     childProcess.execSync(`sudo withlist -r set_mod ${ name } -s -a 2>/dev/null`)
@@ -462,7 +460,7 @@ async function discourse(config) {
       api_key: config.secrets.discourse.key
     })
     path += '?' + queryString.stringify(query)
-    debug(path)
+    log.debug(path)
 
     for (let retry = 0; retry < 15; retry++) {
       if (verb === 'get') {
@@ -471,7 +469,7 @@ async function discourse(config) {
         var result = await discourse[verb](path, body)
       }
       if (result.res.statusCode === 429 || result.res.statusCode === 500) {
-        debug(`Sleeping for ${ result.res.statusCode }`)
+        log.warn(`Sleeping for ${ result.res.statusCode }`)
         discourse = requestJSON.createClient(config.discourse)
         sleep.sleep(5)
       } else {
@@ -513,10 +511,10 @@ async function discourse(config) {
    * Create new users.
    */
   let discoursePeople = await getAllUsers()
-  debug(`Retrieved ${ _.keys(discoursePeople).length } users`)
+  log.debug(`Retrieved ${ _.keys(discoursePeople).length } users`)
   let create = _.difference(_.keys(existingPeople), _.keys(discoursePeople))
   if (create.length > 0) {
-    debug(`Creating ${ create.length }`)
+    log.debug(`Creating ${ create.length }`)
     let createUsers = async create => {
       for (let user of _.values(_.pick(existingPeople, create))) {
         await callDiscourseAPI('post', 'users', null, {
@@ -542,10 +540,10 @@ async function discourse(config) {
   let activeDiscoursePeople = _.pickBy(discoursePeople, user => {
     return !user.suspended
   })
-  debug(`${ _.keys(activeDiscoursePeople).length } are active`)
+  log.debug(`${ _.keys(activeDiscoursePeople).length } are active`)
   let suspend = _.difference(_.keys(activeDiscoursePeople), _.keys(existingPeople))
   if (suspend.length > 0) {
-    debug(`Suspending ${ suspend.length }`)
+    log.debug(`Suspending ${ suspend.length }`)
     let suspendUsers = async suspend => {
       for (let user of _.values(_.pick(discoursePeople, suspend))) {
         await callDiscourseAPI('post', `admin/users/${ user.id }/log_out`, null, {})
@@ -573,7 +571,7 @@ async function discourse(config) {
    */
   let reactivate = _.difference(_.keys(existingPeople), _.keys(activeDiscoursePeople))
   if (reactivate.length > 0) {
-    debug(`Reactivating ${ reactivate.length }`)
+    log.debug(`Reactivating ${ reactivate.length }`)
     let reactivateUsers = async reactivate => {
       for (let user of _.values(_.pick(discoursePeople, reactivate))) {
         await callDiscourseAPI('put', `admin/users/${ user.id }/unsuspend`, null, {})
@@ -595,10 +593,10 @@ async function discourse(config) {
   let discourseModerators = _.pickBy(discoursePeople, user => {
     return user.moderator
   })
-  debug(`Forum has ${ _.keys(discourseModerators).length } moderators`)
+  log.debug(`Forum has ${ _.keys(discourseModerators).length } moderators`)
   let missingModerators = _.difference(_.keys(moderators), _.keys(discourseModerators))
   if (missingModerators.length > 0) {
-    debug(`Adding ${ missingModerators.length } moderators`)
+    log.debug(`Adding ${ missingModerators.length } moderators`)
     let addModerators = async moderators => {
       for (let user of _.values(_.pick(discoursePeople, moderators))) {
         await callDiscourseAPI('put', `admin/users/${ user.id }/grant_moderation`)
@@ -608,7 +606,7 @@ async function discourse(config) {
   }
   let extraModerators = _.difference(_.keys(discourseModerators), _.keys(moderators))
   if (extraModerators.length > 0) {
-    debug(`Removing ${ extraModerators.length } moderators`)
+    log.debug(`Removing ${ extraModerators.length } moderators`)
     let removeModerators = async moderators => {
       for (let user of _.values(_.pick(discoursePeople, moderators))) {
         await callDiscourseAPI('put', `admin/users/${ user.id }/revoke_moderation`)
@@ -638,7 +636,23 @@ let config = _.extend(
   jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
   argv
 )
-debug(_.omit(config, 'secrets'))
+let PrettyStream = require('bunyan-prettystream')
+let prettyStream = new PrettyStream()
+prettyStream.pipe(process.stdout)
+if (config.debug) {
+  log.addStream({
+    type: 'raw',
+    stream: prettyStream,
+    level: "debug"
+  })
+} else {
+  log.addStream({
+    type: 'raw',
+    stream: prettyStream,
+    level: "warn"
+  })
+}
+log.debug(_.omit(config, 'secrets'))
 
 let queue = asyncLib.queue((unused, callback) => {
   people(config).then(() => {
@@ -646,8 +660,7 @@ let queue = asyncLib.queue((unused, callback) => {
   }).then(() => {
     discourse(config)
   }).catch(err => {
-    debug(err)
-    log.debug(err)
+    log.fatal(err)
   })
   callback()
 }, 1)

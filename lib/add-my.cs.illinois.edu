@@ -44,7 +44,7 @@ try {
   var sections = [ config.addTo.trim() ]
   var netIDs = config.netIDs
 
-  var debug = casper.verbose = casper.cli.options.debug
+  var debug = casper.verbose = config.debugGet
 } catch (err) {
   console.error(err)
 }

@@ -48,7 +48,7 @@ try {
     })
   }
 
-  var debug = casper.verbose = config.debug
+  var debug = casper.verbose = config.debugGet
 } catch (err) {
   console.error(err)
 }
