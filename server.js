@@ -278,10 +278,10 @@ async function people (config) {
   /*
    * Save to Mongo.
    */
-  let state = await stateCollection.findOne({ _id: config.collection })
+  let state = await stateCollection.findOne({ _id: 'peoplelogger' })
   if (state === null) {
     state = {
-      _id: config.collection,
+      _id: 'peoplelogger',
       counter: 1
     }
   } else {
