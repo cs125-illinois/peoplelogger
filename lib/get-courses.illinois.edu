@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+
+'use strict'
+
+const phantom = require('phantom')
+const cheerio = require('cheerio')
+
+const argv = require('minimist')(process.argv.slice(2))
+const CRNPattern = /^\d{5}$/
+const typePattern = /^(Lecture|Laboratory-Discussion)$/
+const identifierPattern = /A[A-Z][A-Z0-9]$/
+const daysPattern = /^([MTWRF]+)$/
+const timePattern = /^(\d{2}:\d{2}[AP]M) - (\d{2}:\d{2}[AP]M)$/
+// const timePattern = /^\d{2}.*/
+
+phantom.create()
+  .then(async instance => {
+    const page = await instance.createPage()
+    const status = await page.open(argv._[0])
+    const content = await page.property('content')
+    const $ = cheerio.load(content)
+
+    $('table#section-dt tr').each((i, element) => {
+      if (!$(element).attr('id') || !$(element).attr('id').startsWith('uid')) {
+        return
+      }
+      let CRN, type, identifier, days, time, location
+      $(element).find('td').each((unused, cell) => {
+        let text = $(cell).text().trim()
+        if ($(cell).find('div.app-meeting').length === 1) {
+          text = $(cell).find('div.app-meeting').first().text().trim()
+        }
+
+        if (CRNPattern.test(text)) {
+          CRN = parseInt(text)
+          return
+        }
+        if (typePattern.test(text)) {
+          type = text
+          return
+        }
+        if (identifierPattern.test(text)) {
+          identifier = text
+          return
+        }
+        if (daysPattern.test(text)) {
+          days = text
+          return
+        }
+        if (timePattern.test(text)) {
+          time = text
+          return
+        }
+        if ($(cell).hasClass('adjh')) {
+          location = text
+        }
+      })
+      console.log(CRN, type, identifier, days, time, location)
+    })
+
+    await instance.exit()
+  })
+
+// vim: ts=2:sw=2:et:ft=javascript
