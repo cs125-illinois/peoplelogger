@@ -11,7 +11,6 @@ const typePattern = /^(Lecture|Laboratory-Discussion)$/
 const identifierPattern = /A[A-Z][A-Z0-9]$/
 const daysPattern = /^([MTWRF]+)$/
 const timePattern = /^(\d{2}:\d{2}[AP]M) - (\d{2}:\d{2}[AP]M)$/
-// const timePattern = /^\d{2}.*/
 
 phantom.create()
   .then(async instance => {
@@ -20,6 +19,7 @@ phantom.create()
     const content = await page.property('content')
     const $ = cheerio.load(content)
 
+    let sections = {}
     $('table#section-dt tr').each((i, element) => {
       if (!$(element).attr('id') || !$(element).attr('id').startsWith('uid')) {
         return
@@ -48,15 +48,26 @@ phantom.create()
           return
         }
         if (timePattern.test(text)) {
-          time = text
+          time = timePattern.exec(text)
           return
         }
         if ($(cell).hasClass('adjh')) {
           location = text
         }
       })
-      console.log(CRN, type, identifier, days, time, location)
+      sections[identifier] = {
+        CRN: CRN,
+        type: type,
+        name: identifier,
+        days: days,
+        times: {
+          start: time[1].trim(),
+          end: time[2].trim()
+        },
+        location: location
+      }
     })
+    console.log(JSON.stringify(sections, null, 2))
 
     await instance.exit()
   })

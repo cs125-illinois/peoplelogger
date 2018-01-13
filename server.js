@@ -111,6 +111,7 @@ async function people (config) {
       stateCollection.deleteMany({})
       peopleCollection.deleteMany({})
       changesCollection.deleteMany({})
+      enrollmentCollection.deleteMany({})
     } else {
       log.debug('Skipping reset')
     }
@@ -119,6 +120,7 @@ async function people (config) {
   /*
    * Grab staff info.
    */
+  let allStaff = {}
   let getStaff = async (name) => {
     let staff = []
     let sheet = await googleSpreadsheetToJSON({
@@ -131,12 +133,12 @@ async function people (config) {
       _.each(inner, person  => {
         if ('Email' in person) {
           staff.push(person['Email'])
+          allStaff[person['Email']] = person
         }
       })
     })
     return staff
   }
-
   try {
     var TAs = await getStaff('TAs')
     var volunteers = await getStaff('Volunteers')
@@ -146,6 +148,46 @@ async function people (config) {
     throw(err)
     return
   }
+
+  /*
+   * Grab office hour info.
+   */
+  let officeHourStaff = []
+  let sheet = await googleSpreadsheetToJSON({
+    spreadsheetId: config.officehours,
+    credentials: config.secrets.google,
+    propertyMode: 'none',
+    worksheet: [ 'Weekly Schedule' ]
+  })
+  _.each(sheet, inner => {
+    _.each(inner, row  => {
+      if (row['Assistants']) {
+        _.each(row['Assistants'].toString().split(','), email => {
+          email = `${ email.toLowerCase().trim() }@illinois.edu`
+          if (staff.indexOf(email) !== -1) {
+            officeHourStaff.push(email)
+          }
+        })
+      }
+    })
+  })
+  officeHourStaff = _.uniq(officeHourStaff)
+
+  /*
+   * Get section info.
+   */
+  let sectionCommand = `./lib/get-courses.illinois.edu ${ config.courses }`
+  log.debug(`Running ${ sectionCommand }`)
+  try {
+    var sectionInfo = JSON.parse(childProcess.execSync(sectionCommand))
+    if (config.sectionInfo) {
+      sectionInfo = _.extend(sectionInfo, config.sectionInfo)
+    }
+  } catch (err) {
+    throw err
+    return
+  }
+
 
   /*
    * Add staff to my.cs.illinois.edu
@@ -233,20 +275,19 @@ async function people (config) {
       },
       username: person['Net ID'],
       ID: person['UIN'],
-      year: person['Year'],
-      sections: (() => {
-        return _.reduce(person.classes, (all, c) => {
-          c.ID = c['CRN']
-          c.name = matchClassID.exec(c['class'].trim())[0].trim()
-          delete (c['CRN'])
-          delete (c['class'])
-          c['credits'] = parseInt(c['credits'])
-          all[c.name] = c
-          allSections[c.name] = true
-          return all
-        }, {})
-      })()
+      year: person['Year']
     }
+    normalizedPerson.sections = _.reduce(person.classes, (all, c) => {
+      c.ID = c['CRN']
+      c.name = matchClassID.exec(c['class'].trim())[0].trim()
+      delete (c['CRN'])
+      delete (c['class'])
+      c['credits'] = parseInt(c['credits'])
+      all[c.name] = c
+      allSections[c.name] = true
+      normalizedPerson[c.name] = true
+      return all
+    }, {})
     if (stringHash(person.image) !== blankPhoto) {
       let photoData = base64JS.toByteArray(person.image)
       let photoType = imageType(photoData)
@@ -259,14 +300,33 @@ async function people (config) {
         size: photoSize
       }
     }
+
     if (TAs.indexOf(email) !== -1) {
       normalizedPerson.role = 'TA'
+      normalizedPerson.staff = true
+      normalizedPerson.active = true
     } else if (developers.indexOf(email) !== -1) {
       normalizedPerson.role = 'developer'
+      normalizedPerson.staff = true
+      normalizedPerson.active = true
     } else if (volunteers.indexOf(email) !== -1) {
       normalizedPerson.role = 'volunteer'
+      normalizedPerson.staff = true
+      normalizedPerson.active = (officeHourStaff.indexOf(email) !== -1)
     } else {
       normalizedPerson.role = 'student'
+    }
+    if (normalizedPerson.role === 'TA' || normalizedPerson.role === 'volunteer') {
+      let mySections = allStaff[normalizedPerson.email]['Section']
+      if (mySections && mySections.trim().length > 0) {
+        let sections = mySections.trim().split(',')
+        _.each(sections, section => {
+          section = section.trim()
+          expect(sectionInfo).to.have.property(section)
+          normalizedPerson[section] = true
+          normalizedPerson.active = true
+        })
+      }
     }
     return normalizedPerson
   })
@@ -274,6 +334,9 @@ async function people (config) {
     return person.email
   })
   allSections = _.keys(allSections)
+  _.each(sectionInfo, section => {
+    section.active = (allSections.indexOf(section.name) !== -1)
+  })
 
   /*
    * Save to Mongo.
@@ -288,6 +351,12 @@ async function people (config) {
     state.counter++
   }
   state.updated = moment().toDate()
+
+  await stateCollection.save({
+    _id: 'sectionInfo',
+    updated: state.updated,
+    sections: sectionInfo
+  })
 
   let allPeople = _.reduce(await peopleCollection.find()
     .toArray(), (p, person) => {
@@ -667,8 +736,15 @@ let queue = asyncLib.queue((unused, callback) => {
 
 if (argv._.length === 0 && argv.oneshot) {
   queue.push({})
+  queue.drain = () => {
+    process.exit(0)
+  }
 } else if (argv.oneshot) {
-  eval(argv._[0])(config)
+  Promise.all([ eval(argv._[0])(config) ]).then(() => {
+    process.exit(0)
+  }).catch(err => {
+    throw err
+  })
 } else {
   let CronJob = require('cron').CronJob
   let job = new CronJob('0 0 * * * *', async () => {
