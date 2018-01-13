@@ -150,7 +150,7 @@ async function people (config) {
   }
 
   /*
-   * Grab office hour info.
+   * Grab ffice hour info.
    */
   let officeHourStaff = []
   let sheet = await googleSpreadsheetToJSON({
@@ -304,27 +304,33 @@ async function people (config) {
     if (TAs.indexOf(email) !== -1) {
       normalizedPerson.role = 'TA'
       normalizedPerson.staff = true
-      normalizedPerson.active = true
+      normalizedPerson.section = true
+      normalizedPerson.officehours = true
+      normalizedPerson.scheduled = true
     } else if (developers.indexOf(email) !== -1) {
       normalizedPerson.role = 'developer'
       normalizedPerson.staff = true
-      normalizedPerson.active = true
+      normalizedPerson.section = false
+      normalizedPerson.officehours = false
+      normalizedPerson.scheduled = true
     } else if (volunteers.indexOf(email) !== -1) {
       normalizedPerson.role = 'volunteer'
       normalizedPerson.staff = true
-      normalizedPerson.active = (officeHourStaff.indexOf(email) !== -1)
+      normalizedPerson.officehours = (officeHourStaff.indexOf(email) !== -1)
+      normalizedPerson.scheduled = (officeHourStaff.indexOf(email) !== -1)
     } else {
       normalizedPerson.role = 'student'
     }
     if (normalizedPerson.role === 'TA' || normalizedPerson.role === 'volunteer') {
-      let mySections = allStaff[normalizedPerson.email]['Section']
+      let mySections = allStaff[email]['Section']
       if (mySections && mySections.trim().length > 0) {
         let sections = mySections.trim().split(',')
         _.each(sections, section => {
           section = section.trim()
           expect(sectionInfo).to.have.property(section)
           normalizedPerson[section] = true
-          normalizedPerson.active = true
+          normalizedPerson.scheduled = true
+          normalizedPerson.seciton = true
         })
       }
     }
