@@ -330,7 +330,7 @@ async function people (config) {
           expect(sectionInfo).to.have.property(section)
           normalizedPerson[section] = true
           normalizedPerson.scheduled = true
-          normalizedPerson.seciton = true
+          normalizedPerson.section = true
         })
       }
     }
@@ -340,8 +340,12 @@ async function people (config) {
     return person.email
   })
   allSections = _.keys(allSections)
-  _.each(sectionInfo, section => {
-    section.active = (allSections.indexOf(section.name) !== -1)
+  _.each(sectionInfo, (section, name) => {
+    if (config.sectionInfo[name]) {
+      section.active = (config.sectionInfo[name].active === true)
+    } else {
+      section.active = (allSections.indexOf(section.name) !== -1)
+    }
   })
 
   /*
@@ -507,9 +511,13 @@ async function mailman(config) {
   let students = _.pickBy(existingPeople, person => {
     return person.role === 'student'
   })
+  let labs = _.pickBy(existingPeople, person => {
+    return person.section === true
+  })
   syncList('staff', TAs, TAs)
   syncList('assistants', volunteers)
   syncList('developers', developers)
+  syncList('labs', labs)
   syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
 }
 
@@ -742,9 +750,6 @@ let queue = asyncLib.queue((unused, callback) => {
 
 if (argv._.length === 0 && argv.oneshot) {
   queue.push({})
-  queue.drain = () => {
-    process.exit(0)
-  }
 } else if (argv.oneshot) {
   Promise.all([ eval(argv._[0])(config) ]).then(() => {
     process.exit(0)

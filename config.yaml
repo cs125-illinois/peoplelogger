@@ -16,3 +16,4 @@ sectionInfo:
       start: 05:00PM
       end: 06:50PM
     location: 1404 Siebel Center for Comp Sci
+    active: true
