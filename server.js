@@ -289,7 +289,12 @@ async function people (config) {
       c.name = matchClassID.exec(c['class'].trim())[0].trim()
       delete (c['CRN'])
       delete (c['class'])
-      c['credits'] = parseInt(c['credits'])
+      if (c['credits']) {
+        c['credits'] = parseInt(c['credits'])
+      }
+      if (isNaN(c['credits'])) {
+        delete(c['credits'])
+      }
       all[c.name] = c
       allSections[c.name] = true
       normalizedPerson[c.name] = true
@@ -333,6 +338,7 @@ async function people (config) {
       delete(normalizedPerson[config.addTo])
     } else {
       normalizedPerson.role = 'student'
+      normalizedPerson.staff = false
     }
     if (normalizedPerson.role === 'TA' || normalizedPerson.role === 'volunteer') {
       let mySections = allStaff[email]['Section']
@@ -467,12 +473,28 @@ async function people (config) {
   _.each(allSections, section => {
     enrollments[section] = _(currentPeople)
     .filter(person => {
-      return person.role === 'student' && (section in person.sections)
+      if (person.role !== 'student') {
+        return false
+      }
+      if (!(section in person.sections)) {
+        return false
+      }
+      let totalCredits = 0
+      _.each(person.sections, section => {
+        if (section.credits) {
+          totalCredits += section.credits
+        }
+      })
+      return totalCredits > 0
     })
     .value().length
   })
   enrollments['TAs'] = TAs.length
-  enrollments['volunteers'] = volunteers.length
+  enrollments['volunteers'] = _(currentPeople)
+    .filter(person => {
+      return person.role === 'volunteer' && person.scheduled
+    })
+    .value().length
   enrollments['developers'] = developers.length
   enrollments.state = _.omit(state, '_id')
 
