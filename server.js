@@ -108,7 +108,8 @@ async function people (config) {
   if (config.reset) {
     let reset = await promptly.choose('Are you sure you want to reset the database?', ['yes', 'no'])
     if (reset === 'yes') {
-      stateCollection.deleteMany({})
+      stateCollection.deleteMany({ _id: 'peoplelogger' })
+      stateCollection.deleteMany({ _id: 'sectionInfo' })
       peopleCollection.deleteMany({})
       changesCollection.deleteMany({})
       enrollmentCollection.deleteMany({})
@@ -258,6 +259,9 @@ async function people (config) {
     expect(name).to.have.lengthOf.above(1)
     let firstName = name[1].trim()
     let lastName = [name[0].trim(), name.slice(2).join('').trim()].join(' ')
+    if (firstName === "-") {
+      firstName = ""
+    }
 
     let normalizedPerson = {
       email: email,
@@ -276,6 +280,9 @@ async function people (config) {
       username: person['Net ID'],
       ID: person['UIN'],
       year: person['Year']
+    }
+    if (firstName === "") {
+      normalizedPerson.name.full = lastName
     }
     normalizedPerson.sections = _.reduce(person.classes, (all, c) => {
       c.ID = c['CRN']
@@ -307,17 +314,23 @@ async function people (config) {
       normalizedPerson.section = true
       normalizedPerson.officehours = true
       normalizedPerson.scheduled = true
+      delete(normalizedPerson.sections)
+      delete(normalizedPerson[config.addTo])
     } else if (developers.indexOf(email) !== -1) {
       normalizedPerson.role = 'developer'
       normalizedPerson.staff = true
       normalizedPerson.section = false
       normalizedPerson.officehours = false
       normalizedPerson.scheduled = true
+      delete(normalizedPerson.sections)
+      delete(normalizedPerson[config.addTo])
     } else if (volunteers.indexOf(email) !== -1) {
       normalizedPerson.role = 'volunteer'
       normalizedPerson.staff = true
       normalizedPerson.officehours = (officeHourStaff.indexOf(email) !== -1)
       normalizedPerson.scheduled = (officeHourStaff.indexOf(email) !== -1)
+      delete(normalizedPerson.sections)
+      delete(normalizedPerson[config.addTo])
     } else {
       normalizedPerson.role = 'student'
     }
@@ -332,6 +345,7 @@ async function people (config) {
           normalizedPerson.scheduled = true
           normalizedPerson.section = true
         })
+        normalizedPerson.sections = sections
       }
     }
     return normalizedPerson
