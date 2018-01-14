@@ -38,10 +38,17 @@ const log = bunyan.createLogger({
   streams: [
     {
       type: 'rotating-file',
-      path: 'logs/peoplelogger.log',
+      path: 'logs/peoplelogger-info.log',
       period: '1d',
       count: 365,
       level: 'info'
+    },
+    {
+      type: 'rotating-file',
+      path: 'logs/peoplelogger-debug.log',
+      period: '1d',
+      count: 28,
+      level: 'debug'
     }
   ]
 })
