@@ -557,11 +557,15 @@ async function mailman(config) {
   let labs = _.pickBy(existingPeople, person => {
     return person.section === true
   })
+  let EMP = _.pickBy(existingPeople, person => {
+    return person.staff && person.EMP
+  })
   syncList('staff', TAs, TAs)
   syncList('assistants', volunteers)
   syncList('developers', developers)
   syncList('labs', labs)
   syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
+  syncList('EMP', EMP, EMP)
 }
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
