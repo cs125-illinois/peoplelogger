@@ -661,8 +661,7 @@ async function discourse(config) {
 
     discoursePeople = await getAllUsers()
     create = _.difference(_.keys(existingPeople), _.keys(discoursePeople))
-    // HACK: fix for new administrator
-    expect(create).to.have.lengthOf(1)
+    expect(create).to.have.lengthOf(0)
   }
 
   /*
