@@ -158,7 +158,7 @@ async function people (config) {
   }
 
   /*
-   * Grab ffice hour info.
+   * Grab office hour info.
    */
   let officeHourStaff = []
   let sheet = await googleSpreadsheetToJSON({
@@ -195,7 +195,6 @@ async function people (config) {
     throw err
     return
   }
-
 
   /*
    * Add staff to my.cs.illinois.edu
@@ -291,6 +290,7 @@ async function people (config) {
     if (firstName === "") {
       normalizedPerson.name.full = lastName
     }
+    let totalCredits = 0
     normalizedPerson.sections = _.reduce(person.classes, (all, c) => {
       c.ID = c['CRN']
       c.name = matchClassID.exec(c['class'].trim())[0].trim()
@@ -301,6 +301,8 @@ async function people (config) {
       }
       if (isNaN(c['credits'])) {
         delete(c['credits'])
+      } else {
+        totalCredits += c['credits']
       }
       all[c.name] = c
       allSections[c.name] = true
@@ -323,6 +325,7 @@ async function people (config) {
     if (TAs.indexOf(email) !== -1) {
       normalizedPerson.role = 'TA'
       normalizedPerson.staff = true
+      normalizedPerson.student = false
       normalizedPerson.section = true
       normalizedPerson.officehours = true
       normalizedPerson.scheduled = true
@@ -331,6 +334,7 @@ async function people (config) {
     } else if (developers.indexOf(email) !== -1) {
       normalizedPerson.role = 'developer'
       normalizedPerson.staff = true
+      normalizedPerson.student = false
       normalizedPerson.section = false
       normalizedPerson.officehours = false
       normalizedPerson.scheduled = true
@@ -339,12 +343,18 @@ async function people (config) {
     } else if (volunteers.indexOf(email) !== -1) {
       normalizedPerson.role = 'volunteer'
       normalizedPerson.staff = true
+      normalizedPerson.student = false
       normalizedPerson.officehours = (officeHourStaff.indexOf(email) !== -1)
       normalizedPerson.scheduled = (officeHourStaff.indexOf(email) !== -1)
       delete(normalizedPerson.sections)
       delete(normalizedPerson[config.addTo])
-    } else {
+    } else if (totalCredits > 0) {
+      normalizedPerson.student = true
       normalizedPerson.role = 'student'
+      normalizedPerson.staff = false
+    } else {
+      normalizedPerson.student = false
+      normalizedPerson.role = 'other'
       normalizedPerson.staff = false
     }
     if (normalizedPerson.role === 'TA' || normalizedPerson.role === 'volunteer') {
