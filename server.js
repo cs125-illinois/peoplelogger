@@ -405,8 +405,9 @@ async function people (config) {
     sections: sectionInfo
   })
 
-  let allPeople = _.reduce(await peopleCollection.find()
-    .toArray(), (p, person) => {
+  let allPeople = _.reduce(await peopleCollection.find({
+    instructor: false
+  }).toArray(), (p, person) => {
       delete(person._id)
       delete(person.state)
       p[person.email] = person
@@ -531,14 +532,15 @@ async function mailman(config) {
   }
   let existingPeople = await getExistingPeople()
 
-  let instructors = {
-    'challen@illinois.edu': {
-      name: {
-        full: "Geoffrey Challen"
-      },
-      email: 'challen@illinois.edu'
-    }
-  }
+  let instructors = _(existingPeople)
+    .filter(p => {
+      return p.instructor === true
+    })
+    .reduce((people, person) => {
+      people[person.email] = person
+      return people
+    }, {})
+
   let syncList = (name, members, moderators) => {
     members = _.extend(_.clone(members), instructors)
     moderators = _.map(_.extend(_.clone(moderators), instructors), 'email')
@@ -580,7 +582,11 @@ async function mailman(config) {
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
 async function discourse(config) {
-  let existingPeople = await getExistingPeople()
+  let existingPeople = _(await getExistingPeople())
+    .filter(p => {
+      return p.instructor === false
+    })
+    .value()
 
   let moderators = _.pickBy(existingPeople, person => {
     return person.role === 'TA' || person.role === 'volunteer' || person.role === 'developer'
