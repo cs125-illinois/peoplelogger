@@ -285,7 +285,8 @@ async function people (config) {
       },
       username: person['Net ID'],
       ID: person['UIN'],
-      year: person['Year']
+      year: person['Year'],
+      instructor: false
     }
     if (firstName === "") {
       normalizedPerson.name.full = lastName
@@ -582,11 +583,9 @@ async function mailman(config) {
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
 async function discourse(config) {
-  let existingPeople = _(await getExistingPeople())
-    .filter(p => {
-      return p.instructor === false
-    })
-    .value()
+  let existingPeople = _.pickBy(await getExistingPeople(), p => {
+    return p.instructor === false
+  })
 
   let moderators = _.pickBy(existingPeople, person => {
     return person.role === 'TA' || person.role === 'volunteer' || person.role === 'developer'
