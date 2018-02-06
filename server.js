@@ -484,6 +484,7 @@ async function people (config) {
     $set: { active: true }
   })
   await peopleCollection.updateMany({
+    instructor: false,
     "state.counter": { $ne : state.counter },
   }, {
     $set: { active: false }
