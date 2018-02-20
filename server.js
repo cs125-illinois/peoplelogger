@@ -653,6 +653,8 @@ async function discourse(config) {
     enable_local_logins: true
   })
 
+  process.exit(0)
+
   let getAllUsers = async () => {
     let discoursePeople = {}
     for (let page = 0; ; page++) {
