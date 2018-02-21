@@ -613,6 +613,9 @@ async function discourse(config) {
         var result = await discourse.get(path)
       } else if (verb === 'put' || verb === 'post') {
         var result = await discourse[verb](path, body)
+      } else if (verb === 'delete') {
+        discourse.headers['X-Requested-With'] = 'XMLHTTPRequest'
+        var result = await discourse.delete(path)
       }
       if (result.res.statusCode === 429 || result.res.statusCode === 500) {
         log.warn(`Sleeping for ${ result.res.statusCode }`)
@@ -732,6 +735,12 @@ async function discourse(config) {
     reactivate = _.difference(_.keys(existingPeople), _.keys(activeDiscoursePeople))
     expect(reactivate).to.have.lengthOf(0)
   }
+
+  /*
+  for (let user of _.values(activeDiscoursePeople)) {
+    await callDiscourseAPI('delete', `session/${ user.username }`, null, {})
+  }
+  */
 
   /*
    * Set up moderators properly
