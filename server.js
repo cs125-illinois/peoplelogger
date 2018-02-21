@@ -257,11 +257,25 @@ async function people (config) {
   log.debug(`Saw ${_.keys(currentPeople).length} people`)
 
   /*
+   * Get all people before we look at images so that we
+   * can avoid repetitive thumbnail creation.
+   */
+  let allPeople = _.reduce(await peopleCollection.find({
+    instructor: false
+  }).toArray(), (p, person) => {
+      delete(person._id)
+      delete(person.state)
+      p[person.email] = person
+      return p
+    }, {})
+
+  /*
    * Normalize retrieved data.
    */
   const matchClassID = new RegExp('\\s+(\\w+)$')
   let allSections = {}
-  let normalizedPeople = _.mapValues(currentPeople, async person => {
+  let normalizedPeople = []
+  for (let person of _.values(currentPeople)) {
     let email = person['Net ID'] + `@illinois.edu`
     expect(emailValidator.validate(email)).to.be.true()
 
@@ -292,6 +306,8 @@ async function people (config) {
       year: person['Year'],
       instructor: false
     }
+    let previousPerson = allPeople[normalizedPerson.email]
+
     if (firstName === "") {
       normalizedPerson.name.full = lastName
     }
@@ -327,23 +343,30 @@ async function people (config) {
         size: photoSize,
         hash: photoHash
       }
-      let widthRatio = photoSize.width / config.thumbnail
-      let heightRatio = photoSize.height / config.thumbnail
-      let ratio = Math.min(widthRatio, heightRatio)
-      let thumbnail = {
-        type: photoType,
-        size: {
-          width: Math.round(photoSize.width * (1 / ratio)),
-          height: Math.round(photoSize.height * (1 / ratio))
-        }
+      if (previousPerson && previousPerson.photo &&
+          previousPerson.thumbnail && (previousPerson.photo.hash === photoHash)) {
+        normalizedPerson.thumbnail = previousPerson.thumbnail
       }
-      expect(Math.max(thumbnail.size.width, thumbnail.size.height))
-        .to.equal(Math.round(config.thumbnail))
-      let thumbnailImage = await resizeImg(Buffer.from(photoData), {
-        width: thumbnail.size.width,
-        height: thumbnail.size.height
-      })
-      thumbnail.contents = base64JS.fromByteArray(thumbnailImage)
+      if (!(normalizedPerson.thumbnail)) {
+        let widthRatio = photoSize.width / config.thumbnail
+        let heightRatio = photoSize.height / config.thumbnail
+        let ratio = Math.min(widthRatio, heightRatio)
+        let thumbnail = {
+          type: photoType,
+          size: {
+            width: Math.round(photoSize.width * (1 / ratio)),
+            height: Math.round(photoSize.height * (1 / ratio))
+          }
+        }
+        expect(Math.max(thumbnail.size.width, thumbnail.size.height))
+          .to.be.within(Math.round(config.thumbnail) - 1, Math.round(config.thumbnail) + 1)
+        let thumbnailImage = await resizeImg(Buffer.from(photoData), {
+          width: thumbnail.size.width,
+          height: thumbnail.size.height
+        })
+        thumbnail.contents = base64JS.fromByteArray(thumbnailImage)
+        normalizedPerson.thumbnail = thumbnail
+      }
     }
 
     if (TAs.indexOf(email) !== -1) {
@@ -395,8 +418,8 @@ async function people (config) {
         normalizedPerson.sections = sections
       }
     }
-    return normalizedPerson
-  })
+    normalizedPeople.push(normalizedPerson)
+  }
   currentPeople = _.mapKeys(normalizedPeople, person => {
     return person.email
   })
@@ -412,31 +435,25 @@ async function people (config) {
   /*
    * Save to Mongo.
    */
-  let state = await stateCollection.findOne({ _id: 'peoplelogger' })
-  if (state === null) {
-    state = {
-      _id: 'peoplelogger',
-      counter: 1
+  if (!(config.dry_run)) {
+    var state = await stateCollection.findOne({ _id: 'peoplelogger' })
+    if (state === null) {
+      state = {
+        _id: 'peoplelogger',
+        counter: 1
+      }
+    } else {
+      state.counter++
     }
-  } else {
-    state.counter++
+    state.updated = moment().toDate()
+
+    await stateCollection.save({
+      _id: 'sectionInfo',
+      updated: state.updated,
+      sections: sectionInfo
+    })
   }
-  state.updated = moment().toDate()
 
-  await stateCollection.save({
-    _id: 'sectionInfo',
-    updated: state.updated,
-    sections: sectionInfo
-  })
-
-  let allPeople = _.reduce(await peopleCollection.find({
-    instructor: false
-  }).toArray(), (p, person) => {
-      delete(person._id)
-      delete(person.state)
-      p[person.email] = person
-      return p
-    }, {})
   let existingPeople = _.pickBy(allPeople, person => {
     return person.active
   })
@@ -451,6 +468,12 @@ async function people (config) {
   let left = _.difference(_.keys(existingPeople), _.keys(currentPeople))
   let same = _.intersection(_.keys(currentPeople), _.keys(existingPeople))
   log.debug(`${ left.length } left, ${ joined.length } joined, ${ same.length } same`)
+
+  expect(left.length, 'Everyone left').to.not.equal(existingPeople.length)
+
+  if (config.dry_run) {
+    return
+  }
 
   let prepareForAddition = (person) => {
     person._id = person.email
@@ -610,6 +633,7 @@ async function discourse(config) {
   let existingPeople = _.pickBy(await getExistingPeople(), p => {
     return p.instructor === false
   })
+  expect(_.keys(existingPeople).length, 'Everyone left').to.be.at.least(1)
 
   let moderators = _.pickBy(existingPeople, person => {
     return person.role === 'TA' || person.role === 'volunteer' || person.role === 'developer'
