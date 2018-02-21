@@ -31,6 +31,7 @@ const queryString = require('query-string')
 const strictPasswordGenerator = require('strict-password-generator').default
 const passwordGenerator = new strictPasswordGenerator()
 const sleep = require('sleep')
+const resizeImg = require('resize-img')
 
 const bunyan = require('bunyan')
 const log = bunyan.createLogger({
@@ -235,6 +236,9 @@ async function people (config) {
     options.stdio = [0, 1, 2]
     getCommand += ' --verbose'
   }
+  if (config.sections) {
+    getCommand += ` --sections=${ config.sections }`
+  }
 
   log.debug(`Running ${getCommand}`)
   if (config.debugGet) {
@@ -257,7 +261,7 @@ async function people (config) {
    */
   const matchClassID = new RegExp('\\s+(\\w+)$')
   let allSections = {}
-  let normalizedPeople = _.mapValues(currentPeople, person => {
+  let normalizedPeople = _.mapValues(currentPeople, async person => {
     let email = person['Net ID'] + `@illinois.edu`
     expect(emailValidator.validate(email)).to.be.true()
 
@@ -310,7 +314,8 @@ async function people (config) {
       normalizedPerson[c.name] = true
       return all
     }, {})
-    if (stringHash(person.image) !== blankPhoto) {
+    let photoHash = stringHash(person.image)
+    if (photoHash !== blankPhoto) {
       let photoData = base64JS.toByteArray(person.image)
       let photoType = imageType(photoData)
       expect(photoType).to.not.be.null()
@@ -319,8 +324,26 @@ async function people (config) {
       normalizedPerson.photo = {
         contents: person.image,
         type: photoType,
-        size: photoSize
+        size: photoSize,
+        hash: photoHash
       }
+      let widthRatio = photoSize.width / config.thumbnail
+      let heightRatio = photoSize.height / config.thumbnail
+      let ratio = Math.min(widthRatio, heightRatio)
+      let thumbnail = {
+        type: photoType,
+        size: {
+          width: Math.round(photoSize.width * (1 / ratio)),
+          height: Math.round(photoSize.height * (1 / ratio))
+        }
+      }
+      expect(Math.max(thumbnail.size.width, thumbnail.size.height))
+        .to.equal(Math.round(config.thumbnail))
+      let thumbnailImage = await resizeImg(Buffer.from(photoData), {
+        width: thumbnail.size.width,
+        height: thumbnail.size.height
+      })
+      thumbnail.contents = base64JS.fromByteArray(thumbnailImage)
     }
 
     if (TAs.indexOf(email) !== -1) {
