@@ -743,6 +743,7 @@ async function discourse(config) {
     let suspendUsers = async suspend => {
       for (let user of _.values(_.pick(discoursePeople, suspend))) {
         await callDiscourseAPI('post', `admin/users/${ user.id }/log_out`, null, {})
+        await callDiscourseAPI('delete', `session/${ user.username }`, null, {})
         if (user.moderator) {
           await callDiscourseAPI('put', `admin/users/${ user.id }/revoke_moderation`)
         }
