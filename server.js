@@ -99,6 +99,21 @@ async function getExistingPeople (collection) {
   return people
 }
 
+async function getAllPeople (collection) {
+  if (!collection) {
+    var client = await mongo.connect(config.secrets.mongo)
+    collection = client.db(config.database).collection('people')
+  }
+  let people = _.reduce(await collection.find({}).toArray(), (people, person) => {
+      people[person.email] = person
+      return people
+    }, {})
+  if (client) {
+    client.close()
+  }
+  return people
+}
+
 const blankPhoto = '1758209682'
 async function people (config) {
 
@@ -833,6 +848,34 @@ async function discourse(config) {
   })
 }
 
+async function best(config) {
+  /*
+   * Update bestGrades to reflect staff and active students.
+   */
+
+  let client = await mongo.connect(config.secrets.mongo)
+  let database = client.db(config.database)
+
+  let allPeople = await getAllPeople(database.collection('people'))
+  let bestGrades = database.collection('bestGrades')
+
+  for (let person of _.values(allPeople)) {
+    if (person.instructor) {
+      continue
+    }
+    await bestGrades.update({
+      email: person.email
+    }, {
+      $set: {
+        staff: person.staff,
+        active: person.active
+      }
+    })
+  }
+
+  client.close()
+}
+
 let argv = require('minimist')(process.argv.slice(2))
 let config = _.extend(
   jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
@@ -862,6 +905,8 @@ let queue = asyncLib.queue((unused, callback) => {
     mailman(config)
   }).then(() => {
     discourse(config)
+  }).then(() => {
+    best(config)
   }).catch(err => {
     log.fatal(err)
   })
