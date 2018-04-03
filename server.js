@@ -343,6 +343,9 @@ async function people (config) {
       all[c.name] = c
       allSections[c.name] = true
       normalizedPerson[c.name] = true
+      if (c.name.startsWith(config.labPrefix)) {
+        normalizedPerson.lab = c.name
+      }
       return all
     }, {})
     let photoHash = stringHash(person.image)
