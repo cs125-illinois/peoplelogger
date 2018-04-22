@@ -871,6 +871,7 @@ async function best(config) {
     }, {
       $set: {
         staff: person.staff,
+        instructor: person.instructor,
         active: person.active
       }
     })
