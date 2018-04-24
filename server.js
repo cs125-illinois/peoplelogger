@@ -385,6 +385,11 @@ async function people (config) {
         thumbnail.contents = base64JS.fromByteArray(thumbnailImage)
         normalizedPerson.thumbnail = thumbnail
       }
+
+      // Copy over anything we want to preserve from our previous people.
+      if (previousPerson && previousPerson.survey) {
+        normalizedPerson.survey = previousPerson.survey
+      }
     }
 
     if (TAs.indexOf(email) !== -1) {
