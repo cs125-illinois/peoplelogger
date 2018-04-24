@@ -868,16 +868,11 @@ async function best(config) {
   let bestGrades = database.collection('bestGrades')
 
   for (let person of _.values(allPeople)) {
-    if (person.instructor) {
-      continue
-    }
     await bestGrades.update({
       email: person.email
     }, {
       $set: {
-        staff: person.staff,
-        instructor: person.instructor,
-        active: person.active
+        staff: person.staff, active: person.active
       }
     })
   }
