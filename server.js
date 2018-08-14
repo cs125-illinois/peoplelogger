@@ -75,9 +75,6 @@ async function state (config) {
   let bulkState = stateCollection.initializeUnorderedBulkOp()
 
   _.each(config.semesters, (semesterConfig, semester) => {
-    /*
-     * Get section info.
-     */
     let sectionCommand = `./lib/get-courses.illinois.edu ${ semesterConfig.courses }`
     log.debug(`Running ${ sectionCommand }`)
     try {
@@ -103,9 +100,14 @@ async function state (config) {
   }).keys().value()
   expect(currentSemester.length).to.be.within(0, 1)
   if (currentSemester.length === 1) {
+    currentSemester = currentSemester[0]
     bulkState.find({ _id: 'currentSemester' }).upsert().replaceOne({
-      currentSemester: currentSemester[0]
+      currentSemester
     })
+    log.debug(`Current semester is ${ currentSemester }`)
+  } else {
+    bulkState.find({ _id: 'currentSemester' }).removeOne()
+    log.debug(`No current semester`)
   }
 
   await bulkState.execute()
