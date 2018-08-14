@@ -56,6 +56,34 @@ const log = bunyan.createLogger({
 
 const runTime = moment()
 
+async function resetSemester (config, semester) {
+  let stateCollection = config.database.collection('state')
+  let peopleCollection = config.database.collection('people')
+  let changesCollection = config.database.collection('peopleChanges')
+  let enrollmentCollection = config.database.collection('enrollment')
+
+  await stateCollection.deleteMany({ _id: semester })
+  await peopleCollection.deleteMany({ semester })
+  await changesCollection.deleteMany({ semester })
+  await enrollmentCollection.deleteMany({ semester })
+}
+
+async function reset (config) {
+  let stateCollection = config.database.collection('state')
+
+  if (config.resetAll) {
+    let reset = await promptly.choose('Are you sure you want to reset the entire peoplelogger database?', ['yes', 'no'])
+    if (reset === 'yes') {
+      stateCollection.deleteMany({ _id: 'currentSemester'})
+      for (let semester of _.keys(config.semesters)) {
+        await resetSemester(config, semester)
+      }
+    } else {
+      log.debug('Skipping reset')
+    }
+  }
+}
+
 function semesterIsActive (semester, config, daysBefore, daysAfter) {
   let semesterStart = moment.tz(new Date(config.semesters[semester].start), config.timezone)
   let semesterEnd = moment.tz(new Date(config.semesters[semester].end), config.timezone)
@@ -67,11 +95,7 @@ function semesterIsActive (semester, config, daysBefore, daysAfter) {
 }
 
 async function state (config) {
-
-  let client = await mongo.connect(config.secrets.mongo)
-  let database = client.db(config.database)
-
-  let stateCollection = database.collection('state')
+  let stateCollection = config.database.collection('state')
   let bulkState = stateCollection.initializeUnorderedBulkOp()
 
   _.each(config.semesters, (semesterConfig, semester) => {
@@ -180,25 +204,12 @@ async function people (config) {
   /*
    * Initialize mongo.
    */
-  let client = await mongo.connect(config.secrets.mongo)
-  let database = client.db(config.database)
+  let database = config.client.db(config.database)
 
   let peopleCollection = database.collection('people')
   let changesCollection = database.collection('peopleChanges')
   let enrollmentCollection = database.collection('enrollment')
 
-  if (config.reset) {
-    let reset = await promptly.choose('Are you sure you want to reset the database?', ['yes', 'no'])
-    if (reset === 'yes') {
-      stateCollection.deleteMany({ _id: 'peoplelogger' })
-      stateCollection.deleteMany({ _id: 'sectionInfo' })
-      peopleCollection.deleteMany({})
-      changesCollection.deleteMany({})
-      enrollmentCollection.deleteMany({})
-    } else {
-      log.debug('Skipping reset')
-    }
-  }
 
   /*
    * Grab staff info.
@@ -939,7 +950,7 @@ async function best(config) {
 }
 
 let callTable = {
-  state
+  reset, state
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -967,7 +978,14 @@ if (config.debug) {
 log.debug(_.omit(config, 'secrets'))
 
 let queue = asyncLib.queue((unused, callback) => {
-  people(config).then(() => {
+  mongo.connect(config.secrets.mongo).then(client => {
+    config.client = client
+    config.database = client.db(config.database)
+  }).then(() => {
+    reset(config)
+  }).then(() => {
+    people(config)
+  }).then(() => {
     mailman(config)
   }).then(() => {
     discourse(config)
@@ -975,6 +993,10 @@ let queue = asyncLib.queue((unused, callback) => {
     best(config)
   }).catch(err => {
     log.fatal(err)
+  }).then(() => {
+    if (config.client) {
+      config.client.close()
+    }
   })
   callback()
 }, 1)
@@ -982,10 +1004,24 @@ let queue = asyncLib.queue((unused, callback) => {
 if (argv._.length === 0 && argv.oneshot) {
   queue.push({})
 } else if (argv._.length !== 0) {
-  callTable[argv._[0]](config).then(() => {
+  mongo.connect(config.secrets.mongo).then(client => {
+    config.client = client
+    config.database = client.db(config.database)
+    let currentPromise = Promise.resolve()
+    _.each(argv._, command => {
+      currentPromise = currentPromise.then(() => {
+        return callTable[command](config)
+      })
+    })
+    return currentPromise
+  }).then(() => {
     process.exit(0)
   }).catch(err => {
     throw err
+  }).then(() => {
+    if (config.client) {
+      config.client.close()
+    }
   })
 } else {
   let CronJob = require('cron').CronJob
