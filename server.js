@@ -81,14 +81,21 @@ async function reset (config) {
     } else {
       log.debug('Skipping reset')
     }
+  } else if (config.resetOne) {
+    let reset = await promptly.choose(`Are you sure you want to reset the ${ config.resetOne } peoplelogger database?`, ['yes', 'no'])
+    if (reset === 'yes') {
+      await resetSemester(config, config.resetOne)
+    } else {
+      log.debug('Skipping reset')
+    }
   }
 }
 
 function semesterIsActive (semester, config, daysBefore, daysAfter) {
   let semesterStart = moment.tz(new Date(config.semesters[semester].start), config.timezone)
   let semesterEnd = moment.tz(new Date(config.semesters[semester].end), config.timezone)
-  daysBefore = daysBefore !== undefined || config.semesterStartsDaysBefore
-  daysAfter = daysAfter !== undefined || config.semesterEndsDaysAfter
+  daysBefore = daysBefore !== undefined ? daysBefore : config.semesterStartsDaysBefore
+  daysAfter = daysAfter !== undefined ? daysAfter : config.semesterEndsDaysAfter
   semesterStart = semesterStart.subtract(daysBefore, 'days')
   semesterEnd = semesterEnd.add(daysAfter, 'end')
   return runTime.isBetween(semesterStart, semesterEnd)
@@ -137,6 +144,63 @@ async function state (config) {
   await bulkState.execute()
 }
 
+function addStaffToMyCS (config, semester, emails) {
+  let netIDs = _.map(emails, email => {
+    return emailAddresses.parseOneAddress(email).local
+  }).join(',')
+
+  npmPath.setSync()
+  let configFile = tmp.fileSync()
+  let addConfig = {
+    subject: config.subject,
+    semester: config.semesters[semester].name,
+    number: config.semesters[semester].staffCourse.number,
+    section: config.semesters[semester].staffCourse.section,
+    netIDs,
+    secrets: config.secrets
+  }
+  fs.writeFileSync(configFile.name, JSON.stringify(addConfig))
+  let addCommand = `casperjs lib/add-my.cs.illinois.edu ${ configFile.name }`
+  var options = {
+    maxBuffer: 1024 * 1024 * 1024,
+    timeout: 10 * 60 * 1000
+  }
+  if (config.debugAdd) {
+    options.stdio = [0, 1, 2]
+    addCommand += ' --verbose'
+  }
+  log.debug(`Running ${addCommand}`)
+  try {
+    childProcess.execSync(addCommand, options)
+  } catch (err) {
+    log.warn(err)
+  }
+}
+
+async function getEmailsFromSheet (config, sheetID, worksheet) {
+  const sheets = await googleSpreadsheetToJSON({
+    spreadsheetId: sheetID,
+    credentials: config.secrets.google,
+    propertyMode: 'none',
+    worksheet
+  })
+
+  return _(sheets).map((sheet, index) => {
+    sheet.name = worksheet[index]
+    return sheet
+  }).keyBy('name').mapValues(people => {
+    return _(people).map('Email').filter(email => { return email !== undefined }).value()
+  }).value()
+}
+
+async function staff (config) {
+  let currentSemesters = _(config.semesters).pickBy((semesterConfig, semester) => {
+    return semesterIsActive(semester, config, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
+  }).keys().value()
+  for (let currentSemester of currentSemesters) {
+    let emails = await getEmailsFromSheet(config, config.semesters[currentSemester].staffSheet, ['TAs', 'CDs'])
+  }
+}
 
 /*
  * Example object from my.cs.illinois.edu:
@@ -212,38 +276,6 @@ async function people (config) {
 
 
   /*
-   * Grab staff info.
-   */
-  let allStaff = {}
-  let getStaff = async (name) => {
-    let staff = []
-    let sheet = await googleSpreadsheetToJSON({
-      spreadsheetId: config.sheet,
-      credentials: config.secrets.google,
-      propertyMode: 'none',
-      worksheet: [ name ]
-    })
-    _.each(sheet, inner => {
-      _.each(inner, person  => {
-        if ('Email' in person) {
-          staff.push(person['Email'])
-          allStaff[person['Email']] = person
-        }
-      })
-    })
-    return staff
-  }
-  try {
-    var TAs = await getStaff('TAs')
-    var volunteers = await getStaff('Volunteers')
-    var developers = await getStaff('Developers')
-    var staff = _.union(TAs, volunteers, developers)
-  } catch (err) {
-    throw(err)
-    return
-  }
-
-  /*
    * Grab office hour info.
    */
   let officeHourStaff = []
@@ -266,33 +298,6 @@ async function people (config) {
     })
   })
   officeHourStaff = _.uniq(officeHourStaff)
-
-  /*
-   * Add staff to my.cs.illinois.edu
-   */
-  let staffNetIDs = _.map(staff, email => {
-    return emailAddresses.parseOneAddress(email).local
-  })
-
-  npmPath.setSync()
-  let configFile = tmp.fileSync()
-  fs.writeFileSync(configFile.name, JSON.stringify(config))
-  let addCommand = `casperjs lib/add-my.cs.illinois.edu ${ configFile.name } --netIDs=${ staffNetIDs.join(',') }`
-  var options = {
-    maxBuffer: 1024 * 1024 * 1024,
-    timeout: 10 * 60 * 1000
-  }
-  if (config.debugGet) {
-    options.stdio = [0, 1, 2]
-    addCommand += ' --verbose'
-  }
-  log.debug(`Running ${addCommand}`)
-  try {
-    childProcess.execSync(addCommand, options)
-  } catch (err) {
-    log.warn(err)
-    // It's safe to continue here
-  }
 
   /*
    * Scrape from my.cs.illinois.edu
@@ -950,7 +955,7 @@ async function best(config) {
 }
 
 let callTable = {
-  reset, state
+  reset, state, staff
 }
 
 let argv = require('minimist')(process.argv.slice(2))
