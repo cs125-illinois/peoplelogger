@@ -19,7 +19,7 @@ const imageType = require('image-type')
 const imageSize = require('image-size')
 const stringHash = require('string-hash')
 const mongo = require('mongodb').MongoClient
-const moment = require('moment')
+const moment = require('moment-timezone')
 const deepDiff = require('deep-diff').diff
 const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 const emailAddresses = require('email-addresses')
@@ -53,6 +53,64 @@ const log = bunyan.createLogger({
     }
   ]
 })
+
+const runTime = moment()
+
+function semesterIsActive (semester, config, daysBefore, daysAfter) {
+  let semesterStart = moment.tz(new Date(config.semesters[semester].start), config.timezone)
+  let semesterEnd = moment.tz(new Date(config.semesters[semester].end), config.timezone)
+  daysBefore = daysBefore !== undefined || config.semesterStartsDaysBefore
+  daysAfter = daysAfter !== undefined || config.semesterEndsDaysAfter
+  semesterStart = semesterStart.subtract(daysBefore, 'days')
+  semesterEnd = semesterEnd.add(daysAfter, 'end')
+  return runTime.isBetween(semesterStart, semesterEnd)
+}
+
+async function state (config) {
+
+  let client = await mongo.connect(config.secrets.mongo)
+  let database = client.db(config.database)
+
+  let stateCollection = database.collection('state')
+  let bulkState = stateCollection.initializeUnorderedBulkOp()
+
+  _.each(config.semesters, (semesterConfig, semester) => {
+    /*
+     * Get section info.
+     */
+    let sectionCommand = `./lib/get-courses.illinois.edu ${ semesterConfig.courses }`
+    log.debug(`Running ${ sectionCommand }`)
+    try {
+      let sections = JSON.parse(childProcess.execSync(sectionCommand))
+      if (semesterConfig.extraSections) {
+        sections = _.extend(sections, semesterConfig.extraSections)
+      }
+      bulkState.find({ _id: semester }).upsert().update({
+        $set: {
+          sections,
+          start: moment.tz(new Date(semesterConfig.start), config.timezone).toDate(),
+          end: moment.tz(new Date(semesterConfig.end), config.timezone).toDate()
+        }
+      })
+    } catch (err) {
+      throw err
+      return
+    }
+  })
+
+  let currentSemester = _(config.semesters).pickBy((semesterConfig, semester) => {
+    return semesterIsActive(semester, config)
+  }).keys().value()
+  expect(currentSemester.length).to.be.within(0, 1)
+  if (currentSemester.length === 1) {
+    bulkState.find({ _id: 'currentSemester' }).upsert().replaceOne({
+      currentSemester: currentSemester[0]
+    })
+  }
+
+  await bulkState.execute()
+}
+
 
 /*
  * Example object from my.cs.illinois.edu:
@@ -123,7 +181,6 @@ async function people (config) {
   let client = await mongo.connect(config.secrets.mongo)
   let database = client.db(config.database)
 
-  let stateCollection = database.collection('state')
   let peopleCollection = database.collection('people')
   let changesCollection = database.collection('peopleChanges')
   let enrollmentCollection = database.collection('enrollment')
@@ -196,21 +253,6 @@ async function people (config) {
     })
   })
   officeHourStaff = _.uniq(officeHourStaff)
-
-  /*
-   * Get section info.
-   */
-  let sectionCommand = `./lib/get-courses.illinois.edu ${ config.courses }`
-  log.debug(`Running ${ sectionCommand }`)
-  try {
-    var sectionInfo = JSON.parse(childProcess.execSync(sectionCommand))
-    if (config.sectionInfo) {
-      sectionInfo = _.extend(sectionInfo, config.sectionInfo)
-    }
-  } catch (err) {
-    throw err
-    return
-  }
 
   /*
    * Add staff to my.cs.illinois.edu
@@ -894,6 +936,10 @@ async function best(config) {
   client.close()
 }
 
+let callTable = {
+  state
+}
+
 let argv = require('minimist')(process.argv.slice(2))
 let config = _.extend(
   jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
@@ -933,8 +979,8 @@ let queue = asyncLib.queue((unused, callback) => {
 
 if (argv._.length === 0 && argv.oneshot) {
   queue.push({})
-} else if (argv.oneshot) {
-  Promise.all([ eval(argv._[0])(config) ]).then(() => {
+} else if (argv._.length !== 0) {
+  callTable[argv._[0]](config).then(() => {
     process.exit(0)
   }).catch(err => {
     throw err
