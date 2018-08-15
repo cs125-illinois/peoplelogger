@@ -34,19 +34,6 @@ try {
   } catch (err) {
     console.log(err)
   }
-  config = _.extend(config, casper.cli.options)
-
-  var courseOptions = config.course.trim().split('-')
-  var subject = courseOptions[0]
-  var number = courseOptions[1]
-  var semester = courseOptions[2].replace('_', ' ')
-
-  var sections
-  if (config.sections) {
-    sections = config.sections.split(',').map(function(section) {
-      return section.trim()
-    })
-  }
 
   var debug = casper.verbose = config.debugGet
 } catch (err) {
@@ -76,16 +63,16 @@ casper.then(function waitForLoginFill () {
   this.waitForSelector('#clsadm-content')
 })
 
-casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', subject, number))
+casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', config.subject, config.number))
 casper.then(function waitForCheckboxes () {
   checkStatus(this)
   this.waitForSelector('form[action="/classtools/viewroster.asp"]')
 })
 
-if (!sections) {
+if (!config.sections) {
   casper.then(function getSections() {
     this.page.injectJs('jquery/jquery-3.2.1.min.js');
-    sections = this.evaluate(function (semester) {
+    config.sections = this.evaluate(function (semester) {
       var semesterHeader = $(":contains('" + semester + "')")
         .filter(function() {
           return $(this).children().length === 0;
@@ -100,15 +87,15 @@ if (!sections) {
         }
       });
       return sections;
-    }, semester);
-    assert(Array.isArray(sections), "sections is not an array");
-    assert(sections.length > 0, "sections is empty");
+    }, config.semester);
+    assert(Array.isArray(config.sections), "sections is not an array");
+    assert(config.sections.length > 0, "sections is empty");
   });
 }
 
 var students = {}
 casper.then(function rosterPipeline () {
-  casper.each(sections, function rosterRetrieval (self, section) {
+  casper.each(config.sections, function rosterRetrieval (self, section) {
     casper.then(function checkBox () {
       this.page.injectJs('jquery/jquery-3.2.1.min.js')
       var clicked = this.evaluate(function (semester, section) {
@@ -127,7 +114,7 @@ casper.then(function rosterPipeline () {
           }
         })
         return clicked
-      }, semester, section)
+      }, config.semester, section.toString())
       assert(clicked === 1, 'no section clicked')
     })
     casper.then(function submitCheckbox (section) {
@@ -222,7 +209,7 @@ casper.then(function rosterPipeline () {
     })
     /* eslint-enable no-undef */
 
-    casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', subject, number))
+    casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', config.subject, config.number))
     casper.then(function waitForCheckboxes () {
       checkStatus(this)
       this.waitForSelector('form[action="/classtools/viewroster.asp"]')

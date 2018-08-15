@@ -28,8 +28,8 @@ const asyncLib = require('async')
 const promptly = require('promptly')
 const requestJSON = require('request-json')
 const queryString = require('query-string')
-const strictPasswordGenerator = require('strict-password-generator').default
-const passwordGenerator = new strictPasswordGenerator()
+const StrictPasswordGenerator = require('strict-password-generator').default
+const passwordGenerator = new StrictPasswordGenerator()
 const sleep = require('sleep')
 const resizeImg = require('resize-img')
 
@@ -55,6 +55,7 @@ const log = bunyan.createLogger({
 })
 
 const runTime = moment()
+npmPath.setSync()
 
 async function resetSemester (config, semester) {
   let stateCollection = config.database.collection('state')
@@ -74,7 +75,7 @@ async function reset (config) {
   if (config.resetAll) {
     let reset = await promptly.choose('Are you sure you want to reset the entire peoplelogger database?', ['yes', 'no'])
     if (reset === 'yes') {
-      stateCollection.deleteMany({ _id: 'currentSemester'})
+      stateCollection.deleteMany({ _id: 'currentSemester' })
       for (let semester of _.keys(config.semesters)) {
         await resetSemester(config, semester)
       }
@@ -82,13 +83,29 @@ async function reset (config) {
       log.debug('Skipping reset')
     }
   } else if (config.resetOne) {
-    let reset = await promptly.choose(`Are you sure you want to reset the ${ config.resetOne } peoplelogger database?`, ['yes', 'no'])
+    let reset = await promptly.choose(`Are you sure you want to reset the ${config.resetOne} peoplelogger database?`, ['yes', 'no'])
     if (reset === 'yes') {
       await resetSemester(config, config.resetOne)
     } else {
       log.debug('Skipping reset')
     }
   }
+}
+
+async function counter (config) {
+  let stateCollection = config.database.collection('state')
+  let state = await stateCollection.findOne({ _id: 'peoplelogger' })
+  if (state === null) {
+    state = {
+      _id: 'peoplelogger',
+      counter: 1
+    }
+  } else {
+    state.counter++
+  }
+  state.updated = runTime.toDate()
+  await stateCollection.save(state)
+  config.state = _.omit(state, '_id')
 }
 
 function semesterIsActive (semester, config, daysBefore, daysAfter) {
@@ -106,8 +123,8 @@ async function state (config) {
   let bulkState = stateCollection.initializeUnorderedBulkOp()
 
   _.each(config.semesters, (semesterConfig, semester) => {
-    let sectionCommand = `./lib/get-courses.illinois.edu ${ semesterConfig.courses }`
-    log.debug(`Running ${ sectionCommand }`)
+    let sectionCommand = `./lib/get-courses.illinois.edu ${semesterConfig.courses}`
+    log.debug(`Running ${sectionCommand}`)
     try {
       let sections = JSON.parse(childProcess.execSync(sectionCommand))
       if (semesterConfig.extraSections) {
@@ -117,12 +134,12 @@ async function state (config) {
         $set: {
           sections,
           start: moment.tz(new Date(semesterConfig.start), config.timezone).toDate(),
-          end: moment.tz(new Date(semesterConfig.end), config.timezone).toDate()
+          end: moment.tz(new Date(semesterConfig.end), config.timezone).toDate(),
+          counter: config.state.counter
         }
       })
     } catch (err) {
       throw err
-      return
     }
   })
 
@@ -135,7 +152,7 @@ async function state (config) {
     bulkState.find({ _id: 'currentSemester' }).upsert().replaceOne({
       currentSemester
     })
-    log.debug(`Current semester is ${ currentSemester }`)
+    log.debug(`Current semester is ${currentSemester}`)
   } else {
     bulkState.find({ _id: 'currentSemester' }).removeOne()
     log.debug(`No current semester`)
@@ -148,8 +165,6 @@ function addStaffToMyCS (config, semester, emails) {
   let netIDs = _.map(emails, email => {
     return emailAddresses.parseOneAddress(email).local
   }).join(',')
-
-  npmPath.setSync()
   let configFile = tmp.fileSync()
   let addConfig = {
     subject: config.subject,
@@ -160,7 +175,8 @@ function addStaffToMyCS (config, semester, emails) {
     secrets: config.secrets
   }
   fs.writeFileSync(configFile.name, JSON.stringify(addConfig))
-  let addCommand = `casperjs lib/add-my.cs.illinois.edu ${ configFile.name }`
+
+  let addCommand = `casperjs lib/add-my.cs.illinois.edu ${configFile.name}`
   var options = {
     maxBuffer: 1024 * 1024 * 1024,
     timeout: 10 * 60 * 1000
@@ -169,6 +185,7 @@ function addStaffToMyCS (config, semester, emails) {
     options.stdio = [0, 1, 2]
     addCommand += ' --verbose'
   }
+
   log.debug(`Running ${addCommand}`)
   try {
     childProcess.execSync(addCommand, options)
@@ -177,7 +194,7 @@ function addStaffToMyCS (config, semester, emails) {
   }
 }
 
-async function getEmailsFromSheet (config, sheetID, worksheet) {
+async function getEmailsFromSheet (config, sheetID, worksheet, key = 'Email') {
   const sheets = await googleSpreadsheetToJSON({
     spreadsheetId: sheetID,
     credentials: config.secrets.google,
@@ -185,12 +202,110 @@ async function getEmailsFromSheet (config, sheetID, worksheet) {
     worksheet
   })
 
-  return _(sheets).map((sheet, index) => {
-    sheet.name = worksheet[index]
-    return sheet
-  }).keyBy('name').mapValues(people => {
-    return _(people).map('Email').filter(email => { return email !== undefined }).value()
-  }).value()
+  let people = {}
+  for (let index in sheets) {
+    const sheet = sheets[index]
+    const name = worksheet[index]
+    for (let person of sheet) {
+      const email = person[key]
+      expect(email).to.be.ok()
+      expect(people).to.not.have.property(email)
+      people[email] = name
+    }
+  }
+  return people
+}
+
+// const BLANK_PHOTO = '1758209682'
+const MATCH_CLASS_ID = new RegExp('\\s+(\\w+)$')
+async function getFromMyCS (config, semester, getConfig) {
+  let configFile = tmp.fileSync()
+  fs.writeFileSync(configFile.name, JSON.stringify(getConfig))
+  console.log(getConfig)
+
+  let getCommand = `casperjs lib/get-my.cs.illinois.edu ${configFile.name}`
+  var options = {
+    maxBuffer: 1024 * 1024 * 1024,
+    timeout: 10 * 60 * 1000
+  }
+  if (config.debugGet) {
+    options.stdio = [0, 1, 2]
+    getCommand += ' --verbose'
+  }
+
+  log.debug(`Running ${getCommand}`)
+  if (config.debugGet) {
+    // Can't recover the JSON in this case, so just return
+    childProcess.execSync(getCommand, options)
+    return
+  }
+  try {
+    var currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
+  } catch (err) {
+    // Throw to make sure that we don't run other tasks
+    throw err
+  }
+
+  expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
+  log.debug(`Saw ${_.keys(currentPeople).length} people`)
+
+  return _.mapValues(currentPeople, person => {
+    let email = person['Net ID'] + `@illinois.edu`
+    expect(emailValidator.validate(email)).to.be.true()
+
+    let name = person['Name'].split(',')
+    expect(name).to.have.lengthOf.above(1)
+    let firstName = name[1].trim()
+    let lastName = [name[0].trim(), name.slice(2).join('').trim()].join(' ')
+    if (firstName === '-') {
+      firstName = ''
+    }
+
+    let normalizedPerson = {
+      email: email,
+      admitted: person['Admit Term'],
+      college: person['College'],
+      degree: person['Degree'],
+      gender: person['Gender'],
+      level: person['Level'],
+      major: person['Major 1 Name'],
+      hidden: (person['FERPA'] === 'Y'),
+      name: {
+        full: firstName + ' ' + lastName.trim(),
+        first: firstName.trim(),
+        last: lastName.trim()
+      },
+      username: person['Net ID'],
+      ID: person['UIN'],
+      year: person['Year'],
+      instructor: false,
+      state: config.state
+    }
+
+    if (firstName === '') {
+      normalizedPerson.name.full = lastName
+    }
+
+    normalizedPerson.sections = _(person.classes).map(info => {
+      let section = {
+        ID: info['CRN'],
+        name: MATCH_CLASS_ID.exec(info['class'].trim())[0].trim()
+      }
+      section.credits = parseInt(info.credits)
+      if (isNaN(section.credits)) {
+        delete (info.credits)
+      }
+      normalizedPerson[section.name] = true
+      return section
+    }).keyBy(section => {
+      return section.name
+    }).value()
+    normalizedPerson.totalCredits = _.reduce(normalizedPerson.sections, (total, section) => {
+      return section.credits ? total + section.credits : total
+    }, 0)
+
+    console.log(_.omit(normalizedPerson, 'image'))
+  })
 }
 
 async function staff (config) {
@@ -198,7 +313,31 @@ async function staff (config) {
     return semesterIsActive(semester, config, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
   }).keys().value()
   for (let currentSemester of currentSemesters) {
-    let emails = await getEmailsFromSheet(config, config.semesters[currentSemester].staffSheet, ['TAs', 'CDs'])
+    let staff = {}
+    let TAsAndCDs = await getEmailsFromSheet(config, config.semesters[currentSemester].staffSheet, ['TAs', 'CDs'])
+    staff.TAs = _(TAsAndCDs).pickBy(sheet => {
+      return sheet === 'TAs'
+    }).keys().value()
+    staff.developers = _(TAsAndCDs).pickBy(sheet => {
+      return sheet === 'CDs'
+    }).keys().value()
+    let CAs = await getEmailsFromSheet(config, config.semesters[currentSemester].CASheet, ['Form Responses 1'], 'Email Address')
+    staff.assistants = _.keys(CAs).filter(email => {
+      return staff.developers.indexOf(email) === -1
+    })
+    staff.all = [ ...staff.TAs, ...staff.developers, ...staff.assistants ]
+
+    addStaffToMyCS(config, currentSemester, staff.all)
+
+    let currentStaff = await getFromMyCS(config, currentSemester, {
+      subject: config.subject,
+      semester: config.semesters[currentSemester].name,
+      number: config.semesters[currentSemester].staffCourse.number,
+      sections: [ config.semesters[currentSemester].staffCourse.section ],
+      secrets: config.secrets
+    })
+
+    expect(_.keys(currentStaff).length).to.equal(staff.all.length)
   }
 }
 
@@ -236,11 +375,11 @@ async function getExistingPeople (collection) {
     collection = client.db(config.database).collection('people')
   }
   let people = _.reduce(await collection.find({
-      active: true
-    }).toArray(), (people, person) => {
-      people[person.email] = person
-      return people
-    }, {})
+    active: true
+  }).toArray(), (people, person) => {
+    people[person.email] = person
+    return people
+  }, {})
   if (client) {
     client.close()
   }
@@ -253,9 +392,9 @@ async function getAllPeople (collection) {
     collection = client.db(config.database).collection('people')
   }
   let people = _.reduce(await collection.find({}).toArray(), (people, person) => {
-      people[person.email] = person
-      return people
-    }, {})
+    people[person.email] = person
+    return people
+  }, {})
   if (client) {
     client.close()
   }
@@ -264,7 +403,6 @@ async function getAllPeople (collection) {
 
 const blankPhoto = '1758209682'
 async function people (config) {
-
   /*
    * Initialize mongo.
    */
@@ -273,7 +411,6 @@ async function people (config) {
   let peopleCollection = database.collection('people')
   let changesCollection = database.collection('peopleChanges')
   let enrollmentCollection = database.collection('enrollment')
-
 
   /*
    * Grab office hour info.
@@ -286,10 +423,10 @@ async function people (config) {
     worksheet: [ 'Weekly Schedule' ]
   })
   _.each(sheet, inner => {
-    _.each(inner, row  => {
+    _.each(inner, row => {
       if (row['Assistants']) {
         _.each(row['Assistants'].toString().split(','), email => {
-          email = `${ email.toLowerCase().trim() }@illinois.edu`
+          email = `${email.toLowerCase().trim()}@illinois.edu`
           if (staff.indexOf(email) !== -1) {
             officeHourStaff.push(email)
           }
@@ -302,7 +439,7 @@ async function people (config) {
   /*
    * Scrape from my.cs.illinois.edu
    */
-  let getCommand = `casperjs lib/get-my.cs.illinois.edu ${ configFile.name }`
+  let getCommand = `casperjs lib/get-my.cs.illinois.edu ${configFile.name}`
   var options = {
     maxBuffer: 1024 * 1024 * 1024,
     timeout: 10 * 60 * 1000
@@ -312,7 +449,7 @@ async function people (config) {
     getCommand += ' --verbose'
   }
   if (config.sections) {
-    getCommand += ` --sections=${ config.sections }`
+    getCommand += ` --sections=${config.sections}`
   }
 
   log.debug(`Running ${getCommand}`)
@@ -326,7 +463,6 @@ async function people (config) {
   } catch (err) {
     // Throw to make sure that we don't run other tasks
     throw err
-    return
   }
   expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
   log.debug(`Saw ${_.keys(currentPeople).length} people`)
@@ -338,11 +474,11 @@ async function people (config) {
   let allPeople = _.reduce(await peopleCollection.find({
     instructor: false
   }).toArray(), (p, person) => {
-      delete(person._id)
-      delete(person.state)
-      p[person.email] = person
-      return p
-    }, {})
+    delete (person._id)
+    delete (person.state)
+    p[person.email] = person
+    return p
+  }, {})
 
   /*
    * Normalize retrieved data.
@@ -358,8 +494,8 @@ async function people (config) {
     expect(name).to.have.lengthOf.above(1)
     let firstName = name[1].trim()
     let lastName = [name[0].trim(), name.slice(2).join('').trim()].join(' ')
-    if (firstName === "-") {
-      firstName = ""
+    if (firstName === '-') {
+      firstName = ''
     }
 
     let normalizedPerson = {
@@ -383,7 +519,7 @@ async function people (config) {
     }
     let previousPerson = allPeople[normalizedPerson.email]
 
-    if (firstName === "") {
+    if (firstName === '') {
       normalizedPerson.name.full = lastName
     }
     let totalCredits = 0
@@ -396,7 +532,7 @@ async function people (config) {
         c['credits'] = parseInt(c['credits'])
       }
       if (isNaN(c['credits'])) {
-        delete(c['credits'])
+        delete (c['credits'])
       } else {
         totalCredits += c['credits']
       }
@@ -459,8 +595,8 @@ async function people (config) {
       normalizedPerson.section = true
       normalizedPerson.officehours = true
       normalizedPerson.scheduled = true
-      delete(normalizedPerson.sections)
-      delete(normalizedPerson[config.addTo])
+      delete (normalizedPerson.sections)
+      delete (normalizedPerson[config.addTo])
     } else if (developers.indexOf(email) !== -1) {
       normalizedPerson.role = 'developer'
       normalizedPerson.staff = true
@@ -468,16 +604,16 @@ async function people (config) {
       normalizedPerson.section = false
       normalizedPerson.officehours = false
       normalizedPerson.scheduled = true
-      delete(normalizedPerson.sections)
-      delete(normalizedPerson[config.addTo])
+      delete (normalizedPerson.sections)
+      delete (normalizedPerson[config.addTo])
     } else if (volunteers.indexOf(email) !== -1) {
       normalizedPerson.role = 'volunteer'
       normalizedPerson.staff = true
       normalizedPerson.student = false
       normalizedPerson.officehours = (officeHourStaff.indexOf(email) !== -1)
       normalizedPerson.scheduled = (officeHourStaff.indexOf(email) !== -1)
-      delete(normalizedPerson.sections)
-      delete(normalizedPerson[config.addTo])
+      delete (normalizedPerson.sections)
+      delete (normalizedPerson[config.addTo])
     } else if (totalCredits > 0) {
       normalizedPerson.student = true
       normalizedPerson.role = 'student'
@@ -541,16 +677,16 @@ async function people (config) {
     return person.active
   })
   _.each(allPeople, person => {
-    delete(person.active)
+    delete (person.active)
   })
   _.each(existingPeople, person => {
-    delete(person.active)
+    delete (person.active)
   })
 
   let joined = _.difference(_.keys(currentPeople), _.keys(existingPeople))
   let left = _.difference(_.keys(existingPeople), _.keys(currentPeople))
   let same = _.intersection(_.keys(currentPeople), _.keys(existingPeople))
-  log.debug(`${ left.length } left, ${ joined.length } joined, ${ same.length } same`)
+  log.debug(`${left.length} left, ${joined.length} joined, ${same.length} same`)
 
   expect(left.length, 'Everyone left').to.not.equal(existingPeople.length)
 
@@ -608,35 +744,35 @@ async function people (config) {
   })
 
   await peopleCollection.updateMany({
-    "state.counter": { $eq : state.counter },
+    'state.counter': { $eq: state.counter }
   }, {
     $set: { active: true }
   })
   await peopleCollection.updateMany({
     instructor: false,
-    "state.counter": { $ne : state.counter },
+    'state.counter': { $ne: state.counter }
   }, {
     $set: { active: false }
   })
   let enrollments = {}
   _.each(allSections, section => {
     enrollments[section] = _(currentPeople)
-    .filter(person => {
-      if (person.role !== 'student') {
-        return false
-      }
-      if (!(section in person.sections)) {
-        return false
-      }
-      let totalCredits = 0
-      _.each(person.sections, section => {
-        if (section.credits) {
-          totalCredits += section.credits
+      .filter(person => {
+        if (person.role !== 'student') {
+          return false
         }
+        if (!(section in person.sections)) {
+          return false
+        }
+        let totalCredits = 0
+        _.each(person.sections, section => {
+          if (section.credits) {
+            totalCredits += section.credits
+          }
+        })
+        return totalCredits > 0
       })
-      return totalCredits > 0
-    })
-    .value().length
+      .value().length
   })
   enrollments['TAs'] = TAs.length
   enrollments['volunteers'] = _(currentPeople)
@@ -649,11 +785,9 @@ async function people (config) {
 
   await enrollmentCollection.insert(enrollments)
   await stateCollection.save(state)
-
-  client.close()
 }
 
-async function mailman(config) {
+async function mailman (config) {
   /*
    * Update mailman lists.
    */
@@ -677,13 +811,13 @@ async function mailman(config) {
     moderators = _.map(_.extend(_.clone(moderators), instructors), 'email')
     let membersFile = tmp.fileSync().name
     fs.writeFileSync(membersFile, _.map(members, p => {
-      return `"${ p.name.full }" <${ p.email }>`
+      return `"${p.name.full}" <${p.email}>`
     }).join('\n'))
-    log.debug(`${ name } has ${ _.keys(members).length } members`)
-    childProcess.execSync(`sudo remove_members -a -n -N ${ name } 2>/dev/null`)
-    childProcess.execSync(`sudo add_members -w n -a n -r ${ membersFile } ${ name } 2>/dev/null`)
-    childProcess.execSync(`sudo withlist -r set_mod ${ name } -s -a 2>/dev/null`)
-    childProcess.execSync(`sudo withlist -r set_mod ${ name } -u ${ moderators.join(' ')}  2>/dev/null`)
+    log.debug(`${name} has ${_.keys(members).length} members`)
+    childProcess.execSync(`sudo remove_members -a -n -N ${name} 2>/dev/null`)
+    childProcess.execSync(`sudo add_members -w n -a n -r ${membersFile} ${name} 2>/dev/null`)
+    childProcess.execSync(`sudo withlist -r set_mod ${name} -s -a 2>/dev/null`)
+    childProcess.execSync(`sudo withlist -r set_mod ${name} -u ${moderators.join(' ')}  2>/dev/null`)
   }
   let TAs = _.pickBy(existingPeople, person => {
     return person.role === 'TA'
@@ -712,7 +846,7 @@ async function mailman(config) {
 }
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
-async function discourse(config) {
+async function discourse (config) {
   let existingPeople = _.pickBy(await getExistingPeople(), p => {
     return p.instructor === false
   })
@@ -748,7 +882,7 @@ async function discourse(config) {
         var result = await discourse.delete(path)
       }
       if (result.res.statusCode === 429 || result.res.statusCode === 500) {
-        log.warn(`Sleeping for ${ result.res.statusCode }`)
+        log.warn(`Sleeping for ${result.res.statusCode}`)
         discourse = requestJSON.createClient(config.discourse)
         sleep.sleep(5)
       } else {
@@ -790,10 +924,10 @@ async function discourse(config) {
    * Create new users.
    */
   let discoursePeople = await getAllUsers()
-  log.debug(`Retrieved ${ _.keys(discoursePeople).length } users`)
+  log.debug(`Retrieved ${_.keys(discoursePeople).length} users`)
   let create = _.difference(_.keys(existingPeople), _.keys(discoursePeople))
   if (create.length > 0) {
-    log.debug(`Creating ${ create.length }`)
+    log.debug(`Creating ${create.length}`)
     let createUsers = async create => {
       for (let user of _.values(_.pick(existingPeople, create))) {
         await callDiscourseAPI('post', 'users', null, {
@@ -819,19 +953,19 @@ async function discourse(config) {
   let activeDiscoursePeople = _.pickBy(discoursePeople, user => {
     return !user.suspended
   })
-  log.debug(`${ _.keys(activeDiscoursePeople).length } are active`)
+  log.debug(`${_.keys(activeDiscoursePeople).length} are active`)
   let suspend = _.difference(_.keys(activeDiscoursePeople), _.keys(existingPeople))
   if (suspend.length > 0) {
-    log.debug(`Suspending ${ suspend.length }`)
+    log.debug(`Suspending ${suspend.length}`)
     let suspendUsers = async suspend => {
       for (let user of _.values(_.pick(discoursePeople, suspend))) {
-        await callDiscourseAPI('post', `admin/users/${ user.id }/log_out`, null, {})
-        await callDiscourseAPI('delete', `session/${ user.username }`, null, {})
+        await callDiscourseAPI('post', `admin/users/${user.id}/log_out`, null, {})
+        await callDiscourseAPI('delete', `session/${user.username}`, null, {})
         if (user.moderator) {
-          await callDiscourseAPI('put', `admin/users/${ user.id }/revoke_moderation`)
+          await callDiscourseAPI('put', `admin/users/${user.id}/revoke_moderation`)
         }
-        await callDiscourseAPI('put', `admin/users/${ user.id }/suspend`, null, {
-          suspend_until: "3017-10-19 08:00",
+        await callDiscourseAPI('put', `admin/users/${user.id}/suspend`, null, {
+          suspend_until: '3017-10-19 08:00',
           reason: 'No Longer In CS 125'
         })
       }
@@ -851,10 +985,10 @@ async function discourse(config) {
    */
   let reactivate = _.difference(_.keys(existingPeople), _.keys(activeDiscoursePeople))
   if (reactivate.length > 0) {
-    log.debug(`Reactivating ${ reactivate.length }`)
+    log.debug(`Reactivating ${reactivate.length}`)
     let reactivateUsers = async reactivate => {
       for (let user of _.values(_.pick(discoursePeople, reactivate))) {
-        await callDiscourseAPI('put', `admin/users/${ user.id }/unsuspend`, null, {})
+        await callDiscourseAPI('put', `admin/users/${user.id}/unsuspend`, null, {})
       }
     }
     await reactivateUsers(reactivate)
@@ -879,23 +1013,23 @@ async function discourse(config) {
   let discourseModerators = _.pickBy(discoursePeople, user => {
     return user.moderator
   })
-  log.debug(`Forum has ${ _.keys(discourseModerators).length } moderators`)
+  log.debug(`Forum has ${_.keys(discourseModerators).length} moderators`)
   let missingModerators = _.difference(_.keys(moderators), _.keys(discourseModerators))
   if (missingModerators.length > 0) {
-    log.debug(`Adding ${ missingModerators.length } moderators`)
+    log.debug(`Adding ${missingModerators.length} moderators`)
     let addModerators = async moderators => {
       for (let user of _.values(_.pick(discoursePeople, moderators))) {
-        await callDiscourseAPI('put', `admin/users/${ user.id }/grant_moderation`)
+        await callDiscourseAPI('put', `admin/users/${user.id}/grant_moderation`)
       }
     }
     await addModerators(missingModerators)
   }
   let extraModerators = _.difference(_.keys(discourseModerators), _.keys(moderators))
   if (extraModerators.length > 0) {
-    log.debug(`Removing ${ extraModerators.length } moderators`)
+    log.debug(`Removing ${extraModerators.length} moderators`)
     let removeModerators = async moderators => {
       for (let user of _.values(_.pick(discoursePeople, moderators))) {
-        await callDiscourseAPI('put', `admin/users/${ user.id }/revoke_moderation`)
+        await callDiscourseAPI('put', `admin/users/${user.id}/revoke_moderation`)
       }
     }
     await removeModerators(extraModerators)
@@ -916,7 +1050,7 @@ async function discourse(config) {
   })
 }
 
-async function best(config) {
+async function best (config) {
   /*
    * Update bestGrades to reflect staff and active students.
    */
@@ -955,7 +1089,7 @@ async function best(config) {
 }
 
 let callTable = {
-  reset, state, staff
+  reset, counter, state, staff
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -971,16 +1105,17 @@ if (config.debug) {
   log.addStream({
     type: 'raw',
     stream: prettyStream,
-    level: "debug"
+    level: 'debug'
   })
 } else {
   log.addStream({
     type: 'raw',
     stream: prettyStream,
-    level: "warn"
+    level: 'warn'
   })
 }
 log.debug(_.omit(config, 'secrets'))
+expect(config).to.not.have.property('counter')
 
 let queue = asyncLib.queue((unused, callback) => {
   mongo.connect(config.secrets.mongo).then(client => {
@@ -988,6 +1123,10 @@ let queue = asyncLib.queue((unused, callback) => {
     config.database = client.db(config.database)
   }).then(() => {
     reset(config)
+  }).then(() => {
+    counter(config)
+  }).then(() => {
+    state(config)
   }).then(() => {
     people(config)
   }).then(() => {
@@ -1012,7 +1151,7 @@ if (argv._.length === 0 && argv.oneshot) {
   mongo.connect(config.secrets.mongo).then(client => {
     config.client = client
     config.database = client.db(config.database)
-    let currentPromise = Promise.resolve()
+    let currentPromise = counter(config)
     _.each(argv._, command => {
       currentPromise = currentPromise.then(() => {
         return callTable[command](config)
@@ -1030,10 +1169,14 @@ if (argv._.length === 0 && argv.oneshot) {
   })
 } else {
   let CronJob = require('cron').CronJob
-  let job = new CronJob('0 0 * * * *', async () => {
+  let job = new CronJob('0 0 * * * *', async () => { // eslint-disable-line no-unused-vars
     queue.push({})
   }, null, true, 'America/Chicago')
   queue.push({})
 }
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.log(reason.stack || reason)
+})
 
 // vim: ts=2:sw=2:et:ft=javascript
