@@ -14,7 +14,7 @@
 # address (e.g., in subscribe confirmation notices), so it should not be
 # otherwise altered.  (Email addresses are not case sensitive, but they
 # are sensitive to almost everything else :-)
-real_name = 'staff-spring2018'
+real_name = 'staff'
 
 # There are two ownership roles associated with each mailing list.  The
 # list administrators are the people who have ultimate control over all

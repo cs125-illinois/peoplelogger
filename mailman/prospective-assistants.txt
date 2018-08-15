@@ -1,7 +1,7 @@
 # -*- python -*-
 # -*- coding: utf-8 -*-
-## "labs-spring2018" mailing list configuration settings
-## captured on Wed Aug 15 14:47:48 2018
+## "assistants-spring2018" mailing list configuration settings
+## captured on Wed Aug 15 14:47:39 2018
 
 ## General options
 #
@@ -14,7 +14,7 @@
 # address (e.g., in subscribe confirmation notices), so it should not be
 # otherwise altered.  (Email addresses are not case sensitive, but they
 # are sensitive to almost everything else :-)
-real_name = 'labs'
+real_name = 'prospective-assistants'
 
 # There are two ownership roles associated with each mailing list.  The
 # list administrators are the people who have ultimate control over all
@@ -56,7 +56,7 @@ moderator = []
 # This description is used when the mailing list is listed with other
 # mailing lists, or in headers, and so forth.  It should be as succinct
 # as you can get it, while still identifying what the list is.
-description = 'CS 125 Lab TAs and Volunteers'
+description = 'CS 125 CAs'
 
 # The text will be treated as html except that newlines will be
 # translated to <br> - so you can use links, preformatted text, etc, but
@@ -74,7 +74,7 @@ info = ''
 # directive. eg.; [listname %d] -> [listname 123] (listname %05d) ->
 # (listname 00123)
 #
-subject_prefix = '[CS 125 Labs] '
+subject_prefix = '[CS 125 CAs] '
 
 # Several protocols now in wide use attempt to ensure that use of the
 # domain in the author's address (ie, in the From: header field) is
@@ -691,7 +691,7 @@ digest_volume_frequency = 1
 # This section allows you to configure subscription and membership
 # exposure policy.  You can also control whether this list is public or
 # not.  See also the <a
-# href="https://cs125.cs.illinois.edu/mailman/admin/labs-spring2018/archive">Archival
+# href="https://cs125.cs.illinois.edu/mailman/admin/assistants-spring2018/archive">Archival
 # Options</a> section for separate archive-related privacy settings.
 
 # Advertise this list when people ask what lists are on this machine?
@@ -753,7 +753,7 @@ ban_list = []
 #    0 = "Anyone"
 #    1 = "List members"
 #    2 = "List admin only"
-private_roster = 1
+private_roster = 2
 
 # Setting this option causes member email addresses to be transformed
 # when they are presented on list web pages (both in text and as links),
