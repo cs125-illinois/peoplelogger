@@ -54,7 +54,7 @@ const log = bunyan.createLogger({
   ]
 })
 
-const runTime = moment()
+let runTime
 npmPath.setSync()
 
 async function resetSemester (config, semester) {
@@ -75,7 +75,6 @@ async function reset (config) {
   if (config.resetAll) {
     let reset = await promptly.choose('Are you sure you want to reset the entire peoplelogger database?', ['yes', 'no'])
     if (reset === 'yes') {
-      stateCollection.deleteMany({ _id: 'currentSemester' })
       for (let semester of _.keys(config.semesters)) {
         await resetSemester(config, semester)
       }
@@ -142,21 +141,6 @@ async function state (config) {
       throw err
     }
   })
-
-  let currentSemester = _(config.semesters).pickBy((semesterConfig, semester) => {
-    return semesterIsActive(semester, config)
-  }).keys().value()
-  expect(currentSemester.length).to.be.within(0, 1)
-  if (currentSemester.length === 1) {
-    currentSemester = currentSemester[0]
-    bulkState.find({ _id: 'currentSemester' }).upsert().replaceOne({
-      currentSemester
-    })
-    log.debug(`Current semester is ${currentSemester}`)
-  } else {
-    bulkState.find({ _id: 'currentSemester' }).removeOne()
-    log.debug(`No current semester`)
-  }
 
   await bulkState.execute()
 }
@@ -357,6 +341,7 @@ async function addPhotos (config, people) {
     }
     if (existingPhotos[imageHash]) {
       expect(existingPhotos[imageHash].email).to.equal(person.email)
+      person.imageID = imageHash
     } else {
       person.imageID = imageHash
       let photoData = base64JS.toByteArray(person.image)
@@ -402,7 +387,7 @@ async function addPhotos (config, people) {
   }
 }
 
-async function recordPeopleChanges (config, existing, current, semester, staff = false) {
+async function recordPeople (config, existing, current, semester, staff = false) {
   const type = staff ? 'Staff' : 'Students'
   let peopleCollection = config.database.collection('people')
   let bulkPeople = peopleCollection.initializeUnorderedBulkOp()
@@ -423,13 +408,13 @@ async function recordPeopleChanges (config, existing, current, semester, staff =
 
   for (let email of changes.joined) {
     let person = current[email]
-    person.active = true
     expect(person.semester).to.equal(semester)
     bulkChanges.insert({
       type: 'joined',
       email,
       state: config.state,
-      semester
+      semester,
+      left: false
     })
     peopleCount++
     bulkPeople.find({
@@ -451,21 +436,20 @@ async function recordPeopleChanges (config, existing, current, semester, staff =
       _id: `${email}_${semester}`
     }).update({
       $set: {
-        active: false
+        active: false, left: true
       }
     })
   }
 
   for (let email of changes.same) {
     let person = current[email]
-    person.active = true
     peopleCount++
     bulkPeople.find({
       _id: `${email}_${semester}`
     }).replaceOne(person)
 
-    let existingPerson = _.omit(existing[email], 'state', '_id', 'active')
-    let currentPerson = _.omit(person, 'state', 'active')
+    let existingPerson = _.omit(existing[email], 'state', '_id')
+    let currentPerson = _.omit(person, 'state')
 
     let personDiff = deepDiff(existingPerson, currentPerson)
     if (personDiff !== undefined) {
@@ -476,6 +460,13 @@ async function recordPeopleChanges (config, existing, current, semester, staff =
         diff: personDiff
       })
     }
+    bulkPeople.find({
+      _id: `${email}_${semester}`
+    }).update({
+      $set: {
+        left: false
+      }
+    })
   }
 
   bulkChanges.insert({ type: 'counter', semester, state: config.state })
@@ -483,22 +474,35 @@ async function recordPeopleChanges (config, existing, current, semester, staff =
   if (peopleCount > 0) {
     await bulkPeople.execute()
   }
+}
 
-  await peopleCollection.updateMany({
-    semester,
-    staff,
-    'state.counter': { $eq: config.state.counter }
-  }, {
-    $set: { active: true }
+async function getInfoFromSheet (config, info) {
+  info.worksheet = info.worksheet !== undefined ? info.worksheet : [ 'Form Responses 1' ]
+  info.email = info.email !== undefined ? info.email : 'Email Address'
+  expect(info.worksheet.length).to.equal(1)
+  expect(info.email).to.be.ok()
+
+  let sheet = await googleSpreadsheetToJSON({
+    spreadsheetId: info.sheet,
+    credentials: config.secrets.google,
+    propertyMode: 'none',
+    worksheet: info.worksheet
   })
-  await peopleCollection.updateMany({
-    instructor: false,
-    semester,
-    staff,
-    'state.counter': { $ne: config.state.counter }
-  }, {
-    $set: { active: false }
-  })
+  expect(sheet.length).to.equal(1)
+  sheet = sheet[0]
+
+  return _(sheet).map(p => {
+    let person = {
+      email: p[info.email]
+    }
+    expect(person.email).to.be.ok()
+    _.each(info.mapping, (to, from) => {
+      if (p[from]) {
+        person[to] = p[from]
+      }
+    })
+    return person
+  }).keyBy('email').value()
 }
 
 async function staff (config) {
@@ -510,18 +514,28 @@ async function staff (config) {
 
   for (let currentSemester of currentSemesters) {
     let staff = {}
-    let TAsAndCDs = await getEmailsFromSheet(config, config.semesters[currentSemester].staffSheet, ['TAs', 'CDs'])
+    let TAsAndCDs = await getEmailsFromSheet(config, config.semesters[currentSemester].sheets.staff, ['TAs', 'CDs'])
     staff.TAs = _(TAsAndCDs).pickBy(sheet => {
       return sheet === 'TAs'
     }).keys().value()
     staff.developers = _(TAsAndCDs).pickBy(sheet => {
       return sheet === 'CDs'
     }).keys().value()
-    let CAs = await getEmailsFromSheet(config, config.semesters[currentSemester].CASheet, ['Form Responses 1'], 'Email Address')
+    let CAs = await getEmailsFromSheet(config, config.semesters[currentSemester].sheets.CAs, ['Form Responses 1'], 'Email Address')
     staff.assistants = _.keys(CAs).filter(email => {
       return staff.developers.indexOf(email) === -1
     })
     staff.all = [ ...staff.TAs, ...staff.developers, ...staff.assistants ]
+
+    const staffInfo = await getInfoFromSheet(config, {
+      sheet: config.semesters[currentSemester].sheets.staffInfo,
+      mapping: {
+        'GitHub Username': 'github',
+        'Smartphone OS': 'smartphone',
+        'Apple ID Email': 'appleID',
+        'Google Play Store Email': 'playStoreID'
+      }
+    })
 
     addStaffToMyCS(config, currentSemester, staff.all)
 
@@ -541,6 +555,12 @@ async function staff (config) {
       staffMember.semester = currentSemester
       staffMember.staff = true
       staffMember.student = false
+      staffMember.active = false
+
+      if (staffMember.email in staffInfo) {
+        staffMember.info = staffInfo[staffMember.email]
+      }
+
       delete (staffMember.image)
       delete (staffMember.sections)
       delete (staffMember.totalCredits)
@@ -556,6 +576,7 @@ async function staff (config) {
       let person = currentStaff[email]
       expect(person).to.not.have.property('role')
       person.role = 'developer'
+      person.active = 'info' in person
     })
     _.each(staff.assistants, email => {
       expect(currentStaff).to.have.property(email)
@@ -567,7 +588,7 @@ async function staff (config) {
     let existingStaff = _.keyBy(await peopleCollection.find({
       instructor: false, staff: true, semester: currentSemester
     }).toArray(), 'email')
-    await recordPeopleChanges(config, existingStaff, currentStaff, currentSemester, true)
+    await recordPeople(config, existingStaff, currentStaff, currentSemester, true)
   }
 }
 
@@ -589,6 +610,7 @@ async function students (config) {
     await addPhotos(config, _.values(currentStudents))
 
     _.each(currentStudents, student => {
+      student.active = true
       student.semester = currentSemester
       student.staff = false
       student.student = true
@@ -622,7 +644,23 @@ async function students (config) {
     let existingStudents = _.keyBy(await peopleCollection.find({
       instructor: false, student: true, semester: currentSemester
     }).toArray(), 'email')
-    await recordPeopleChanges(config, existingStudents, currentStudents, currentSemester)
+    await recordPeople(config, existingStudents, currentStudents, currentSemester)
+
+    await peopleCollection.updateMany({
+      semester: currentSemester,
+      staff: false,
+      'state.counter': { $eq: config.state.counter }
+    }, {
+      $set: { active: true }
+    })
+    await peopleCollection.updateMany({
+      instructor: false,
+      semester: currentSemester,
+      staff: false,
+      'state.counter': { $ne: config.state.counter }
+    }, {
+      $set: { active: false }
+    })
   }
 }
 
@@ -682,12 +720,10 @@ async function people (config) {
 }
 
 async function mailman (config) {
-  /*
-   * Update mailman lists.
-   */
-  if (ip.address() !== config.server) {
-    log.warn(`skipping mailman since we are not on the mail server`)
-    return
+
+  const dryRun = ip.address() === config.mailServer
+  if (dryRun) {
+    log.warn(`Mailmain dry run since we are not on the mail server`)
   }
   let existingPeople = await getExistingPeople()
 
@@ -1012,6 +1048,8 @@ log.debug(_.omit(config, 'secrets'))
 expect(config).to.not.have.property('counter')
 
 let queue = asyncLib.queue((unused, callback) => {
+  runTime = moment()
+
   mongo.connect(config.secrets.mongo).then(client => {
     config.client = client
     config.database = client.db(config.database)
@@ -1044,6 +1082,8 @@ let queue = asyncLib.queue((unused, callback) => {
 if (argv._.length === 0 && argv.oneshot) {
   queue.push({})
 } else if (argv._.length !== 0) {
+  runTime = moment()
+
   mongo.connect(config.secrets.mongo).then(client => {
     config.client = client
     config.database = client.db(config.database)
