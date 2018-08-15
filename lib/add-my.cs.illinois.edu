@@ -32,18 +32,8 @@ try {
   try {
     config = JSON.parse(fs.read(casper.cli.args[0]))
   } catch (err) {
-    console.log(err)
+    console.error(err)
   }
-  config = _.extend(config, casper.cli.options)
-
-  var courseOptions = config.course.trim().split('-')
-  var subject = courseOptions[0]
-  var number = courseOptions[1]
-  var semester = courseOptions[2].replace('_', ' ')
-
-  var sections = [ config.addTo.trim() ]
-  var netIDs = config.netIDs
-
   var debug = casper.verbose = config.debugGet
 } catch (err) {
   console.error(err)
@@ -72,34 +62,32 @@ casper.then(function waitForLoginFill () {
   this.waitForSelector('#clsadm-content')
 })
 
-casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=', subject, number))
+casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=%s', config.subject, config.number, config.section))
 casper.then(function waitForCheckboxes () {
   checkStatus(this)
   this.waitForSelector('form[action="/classtools/viewroster.asp"]')
 })
 
-casper.each(sections, function rosterRetrieval (self, section) {
-  casper.then(function checkBox () {
-    this.page.injectJs('jquery/jquery-3.2.1.min.js')
-    var clicked = this.evaluate(function (semester, section) {
-      var semesterHeader = $(":contains('" + semester + "')")
-        .filter(function () {
-          return $(this).children().length === 0
-        })
-      var semesterHeaderType = $(semesterHeader).get(0).tagName
-      var clicked = 0
-      $(semesterHeader).nextAll().each(function (unused, element) {
-        if (section === $(element).text().trim()) {
-          $(element).prev('input').first().prop('checked', true)
-          clicked++
-        } else if ($(element).get(0).tagName === semesterHeaderType) {
-          return false
-        }
+casper.then(function checkBox () {
+  this.page.injectJs('jquery/jquery-3.2.1.min.js')
+  var clicked = this.evaluate(function (semester, section) {
+    var semesterHeader = $(":contains('" + semester + "')")
+      .filter(function () {
+        return $(this).children().length === 0
       })
-      return clicked
-    }, semester, section)
-    assert(clicked === 1, 'no section clicked')
-  })
+    var semesterHeaderType = $(semesterHeader).get(0).tagName
+    var clicked = 0
+    $(semesterHeader).nextAll().each(function (unused, element) {
+      if (section === $(element).text().trim()) {
+        $(element).prev('input').first().prop('checked', true)
+        clicked++
+      } else if ($(element).get(0).tagName === semesterHeaderType) {
+        return false
+      }
+    })
+    return clicked
+  }, config.semester, config.section.toString())
+  assert(clicked === 1, 'no section clicked')
 })
 casper.then(function submitCheckbox (section) {
   this.click('input[value="View Roster"]')
@@ -111,7 +99,7 @@ casper.then(function waitForRoster () {
 casper.then(function fillLogin () {
   checkStatus(this)
   this.fill('form', {
-    netid: netIDs
+    netid: config.netIDs
   })
 })
 casper.then(function submitLogin () {

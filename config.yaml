@@ -1,21 +1,43 @@
-course: CS-125-Spring_2018
-database: Spring2018
-addTo: AL1
+subject: CS
+number: 125
+semesters:
+  Fall2018:
+    name: Fall 2018
+    start: "08-27-2018"
+    end: "12-20-2018"
+    staffCourse:
+      number: 199
+      section: 125
+    staffSheet: '1uWF4QZ3GNIKosJ9LolB8OPF3ybsB04bCpEsFDuQSvAs'
+    CASheet: '1t41oad983tCsBDxb_K6YWyEBQ7AZrdSmziLN-HJRclc'
+    courses: 'https://courses.illinois.edu/search/schedule/2018/fall/CS/125?sess='
+  Spring2018:
+    start: "01-16-2018"
+    end: "05-11-2018"
+    course: CS-125-Spring_2018
+    staffSheet: '1UkEOdYgHRPxlP8uDrQVJRlgbTSRzcWdiPOB5rvtX3mc'
+    officehours: '1NA-BHWlPy18dnzTFcmA0qu1Wzoa_CiTn2y8AuBW2zpM'
+    courses: 'https://courses.illinois.edu/search/schedule/2018/spring/CS/125?sess='
+    extraSections:
+      EMP:
+        CRN: 63080
+        type: Lecture
+        name: EMP
+        days: M
+        times:
+          start: 05:00PM
+          end: 06:50PM
+          location: 1404 Siebel Center for Comp Sci
+          active: true
+people:
+  startLoggingDaysBefore: 60
+  endLoggingDaysAfter: 30
+database: cs125
 server: 192.17.96.8
 discourse: https://cs125-forum.cs.illinois.edu
-sheet: '1UkEOdYgHRPxlP8uDrQVJRlgbTSRzcWdiPOB5rvtX3mc'
-officehours: '1NA-BHWlPy18dnzTFcmA0qu1Wzoa_CiTn2y8AuBW2zpM'
-courses: 'https://courses.illinois.edu/search/schedule/2018/spring/CS/125?sess='
-sectionInfo:
-  EMP:
-    CRN: 63080
-    type: Lecture
-    name: EMP
-    days: M
-    times:
-      start: 05:00PM
-      end: 06:50PM
-    location: 1404 Siebel Center for Comp Sci
-    active: true
 thumbnail: 200.0
 labPrefix: AY
+lecturePrefix: AL
+semesterStartsDaysBefore: 14
+semesterEndsDaysAfter: 14
+timezone: "America/Chicago"
