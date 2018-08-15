@@ -264,7 +264,6 @@ async function getFromMyCS (config, semester, getConfig) {
       semester,
       admitted: person['Admit Term'],
       college: person['College'],
-      degree: person['Degree'],
       gender: person['Gender'],
       level: person['Level'],
       major: person['Major 1 Name'],
@@ -303,6 +302,12 @@ async function getFromMyCS (config, semester, getConfig) {
       return section.credits ? total + section.credits : total
     }, 0)
 
+    _.each(normalizedPerson, (value, key) => {
+      if (value === undefined || value === null) {
+        delete (normalizedPerson[key])
+      }
+    })
+
     return normalizedPerson
   }).keyBy('email').value()
 }
@@ -311,11 +316,13 @@ const BLANK_PHOTO = 1758209682
 async function addPhotos (config, people) {
   let photoCollection = config.database.collection('photos')
   let bulkPhotos = photoCollection.initializeUnorderedBulkOp()
-  let existingPhotos = _.keyBy(photoCollection.find({}).project({
+
+  let existingPhotos = _.keyBy(await photoCollection.find({}).project({
     _id: 1, email: 1
   }).toArray(), '_id')
   log.debug(`${_.keys(existingPhotos).length} existing photos`)
 
+  let newCount = 0
   for (let person of people) {
     const imageHash = stringHash(person.image)
     if (imageHash === BLANK_PHOTO) {
@@ -348,6 +355,7 @@ async function addPhotos (config, people) {
       })
       thumbnail.contents = base64JS.fromByteArray(thumbnailImage)
 
+      newCount++
       bulkPhotos.insert({
         _id: imageHash,
         email: person.email,
@@ -361,13 +369,101 @@ async function addPhotos (config, people) {
     }
   }
 
-  await bulkPhotos.execute()
+  if (newCount > 0) {
+    await bulkPhotos.execute()
+  }
+}
+
+async function recordPeopleChanges (config, existing, current, semester, type = 'Students') {
+  let peopleCollection = config.database.collection('people')
+  let bulkPeople = peopleCollection.initializeUnorderedBulkOp()
+  let peopleCount = 0
+
+  let changesCollection = config.database.collection('peopleChanges')
+  let bulkChanges = changesCollection.initializeUnorderedBulkOp()
+
+  let changes = {
+    joined: _.difference(_.keys(current), _.keys(existing)),
+    left: _.difference(_.keys(existing), _.keys(current)),
+    same: _.intersection(_.keys(current), _.keys(existing))
+  }
+  log.debug(`${semester} ${type}: ${changes.left.length} left, ${changes.joined.length} joined, ${changes.same.length} same`)
+  if (_.keys(existing).length > 0) {
+    expect(changes.left.length).to.not.equal(_.keys(existing).length)
+  }
+
+  for (let email of changes.joined) {
+    let person = current[email]
+    person.active = true
+    expect(person.semester).to.equal(semester)
+    bulkChanges.insert({
+      type: 'joined',
+      email,
+      state: config.state,
+      semester
+    })
+    peopleCount++
+    bulkPeople.find({
+      _id: `${email}_${semester}`
+    }).upsert().replaceOne(person)
+  }
+
+  for (let email of changes.left) {
+    let person = existing[email]
+    expect(person.semester).to.equal(semester)
+    bulkChanges.insert({
+      type: 'left',
+      email,
+      state: config.state,
+      semester
+    })
+    peopleCount++
+    bulkPeople.find({
+      _id: `${email}_${semester}`
+    }).update({
+      $set: {
+        active: false
+      }
+    })
+  }
+
+  for (let email of changes.same) {
+    let person = current[email]
+    person.active = true
+    peopleCount++
+    bulkPeople.find({
+      _id: `${email}_${semester}`
+    }).replaceOne(person)
+
+    let existingPerson = _.omit(existing[email], 'state', '_id', 'active')
+    let currentPerson = _.omit(person, 'state', 'active')
+
+    let personDiff = deepDiff(existingPerson, currentPerson)
+    if (personDiff !== undefined) {
+      bulkChanges.insert({
+        type: 'change',
+        email: email,
+        state: config.state,
+        diff: personDiff
+      })
+    }
+  }
+
+  bulkChanges.insert({ type: 'counter', state: config.state })
+
+  await bulkChanges.execute()
+  if (peopleCount > 0) {
+    await bulkPeople.execute()
+  }
 }
 
 async function staff (config) {
+  let peopleCollection = config.database.collection('people')
+
   let currentSemesters = _(config.semesters).pickBy((semesterConfig, semester) => {
     return semesterIsActive(semester, config, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
   }).keys().value()
+
   for (let currentSemester of currentSemesters) {
     let staff = {}
     let TAsAndCDs = await getEmailsFromSheet(config, config.semesters[currentSemester].staffSheet, ['TAs', 'CDs'])
@@ -420,11 +516,17 @@ async function staff (config) {
     })
 
     await addPhotos(config, _.values(currentStaff))
+
     _.each(currentStaff, person => {
-      delete(person.image)
+      delete (person.image)
+      delete (person.section)
+      delete (person.totalCredits)
     })
 
-
+    let existingStaff = _.keyBy(await peopleCollection.find({
+      instructor: false, staff: true, semester: currentSemester
+    }).toArray(), 'email')
+    await recordPeopleChanges(config, existingStaff, currentStaff, currentSemester, 'Staff')
   }
 }
 
@@ -589,7 +691,6 @@ async function people (config) {
       email: email,
       admitted: person['Admit Term'],
       college: person['College'],
-      degree: person['Degree'],
       gender: person['Gender'],
       level: person['Level'],
       major: person['Major 1 Name'],
@@ -1244,15 +1345,17 @@ if (argv._.length === 0 && argv.oneshot) {
         return callTable[command](config)
       })
     })
-    return currentPromise
-  }).then(() => {
-    process.exit(0)
+    return currentPromise.then(() => {
+      return config
+    })
   }).catch(err => {
     throw err
-  }).then(() => {
+  }).then(config => {
     if (config.client) {
       config.client.close()
     }
+  }).then(() => {
+    process.exit(0)
   })
 } else {
   let CronJob = require('cron').CronJob
