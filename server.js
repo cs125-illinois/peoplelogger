@@ -216,12 +216,10 @@ async function getEmailsFromSheet (config, sheetID, worksheet, key = 'Email') {
   return people
 }
 
-// const BLANK_PHOTO = '1758209682'
 const MATCH_CLASS_ID = new RegExp('\\s+(\\w+)$')
 async function getFromMyCS (config, semester, getConfig) {
   let configFile = tmp.fileSync()
   fs.writeFileSync(configFile.name, JSON.stringify(getConfig))
-  console.log(getConfig)
 
   let getCommand = `casperjs lib/get-my.cs.illinois.edu ${configFile.name}`
   var options = {
@@ -249,7 +247,7 @@ async function getFromMyCS (config, semester, getConfig) {
   expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
   log.debug(`Saw ${_.keys(currentPeople).length} people`)
 
-  return _.mapValues(currentPeople, person => {
+  return _(currentPeople).mapValues(person => {
     let email = person['Net ID'] + `@illinois.edu`
     expect(emailValidator.validate(email)).to.be.true()
 
@@ -262,7 +260,8 @@ async function getFromMyCS (config, semester, getConfig) {
     }
 
     let normalizedPerson = {
-      email: email,
+      email,
+      semester,
       admitted: person['Admit Term'],
       college: person['College'],
       degree: person['Degree'],
@@ -279,7 +278,8 @@ async function getFromMyCS (config, semester, getConfig) {
       ID: person['UIN'],
       year: person['Year'],
       instructor: false,
-      state: config.state
+      state: config.state,
+      image: person.image
     }
 
     if (firstName === '') {
@@ -295,7 +295,6 @@ async function getFromMyCS (config, semester, getConfig) {
       if (isNaN(section.credits)) {
         delete (info.credits)
       }
-      normalizedPerson[section.name] = true
       return section
     }).keyBy(section => {
       return section.name
@@ -304,8 +303,65 @@ async function getFromMyCS (config, semester, getConfig) {
       return section.credits ? total + section.credits : total
     }, 0)
 
-    console.log(_.omit(normalizedPerson, 'image'))
-  })
+    return normalizedPerson
+  }).keyBy('email').value()
+}
+
+const BLANK_PHOTO = 1758209682
+async function addPhotos (config, people) {
+  let photoCollection = config.database.collection('photos')
+  let bulkPhotos = photoCollection.initializeUnorderedBulkOp()
+  let existingPhotos = _.keyBy(photoCollection.find({}).project({
+    _id: 1, email: 1
+  }).toArray(), '_id')
+  log.debug(`${_.keys(existingPhotos).length} existing photos`)
+
+  for (let person of people) {
+    const imageHash = stringHash(person.image)
+    if (imageHash === BLANK_PHOTO) {
+      continue
+    }
+    if (existingPhotos[imageHash]) {
+      expect(existingPhotos[imageHash].email).to.equal(person.email)
+    } else {
+      let photoData = base64JS.toByteArray(person.image)
+      let photoType = imageType(photoData)
+      expect(photoType).to.not.be.null()
+      var photoSize = imageSize(Buffer.from(photoData))
+      expect(photoSize).to.not.be.null()
+
+      let widthRatio = photoSize.width / config.thumbnail
+      let heightRatio = photoSize.height / config.thumbnail
+      let ratio = Math.min(widthRatio, heightRatio)
+      let thumbnail = {
+        type: photoType,
+        size: {
+          width: Math.round(photoSize.width * (1 / ratio)),
+          height: Math.round(photoSize.height * (1 / ratio))
+        }
+      }
+      expect(Math.max(thumbnail.size.width, thumbnail.size.height))
+        .to.be.within(Math.round(config.thumbnail) - 1, Math.round(config.thumbnail) + 1)
+      let thumbnailImage = await resizeImg(Buffer.from(photoData), {
+        width: thumbnail.size.width,
+        height: thumbnail.size.height
+      })
+      thumbnail.contents = base64JS.fromByteArray(thumbnailImage)
+
+      bulkPhotos.insert({
+        _id: imageHash,
+        email: person.email,
+        full: {
+          contents: person.image,
+          type: photoType,
+          size: photoSize
+        },
+        thumbnail
+      })
+    }
+  }
+
+  await bulkPhotos.execute()
 }
 
 async function staff (config) {
@@ -338,6 +394,37 @@ async function staff (config) {
     })
 
     expect(_.keys(currentStaff).length).to.equal(staff.all.length)
+
+    _.each(currentStaff, staffMember => {
+      staffMember.semester = currentSemester
+      staffMember.staff = true
+      staffMember.student = false
+    })
+    _.each(staff.TAs, email => {
+      expect(currentStaff).to.have.property(email)
+      let person = currentStaff[email]
+      expect(person).to.not.have.property('role')
+      person.role = 'TA'
+    })
+    _.each(staff.developers, email => {
+      expect(currentStaff).to.have.property(email)
+      let person = currentStaff[email]
+      expect(person).to.not.have.property('role')
+      person.role = 'developer'
+    })
+    _.each(staff.assistants, email => {
+      expect(currentStaff).to.have.property(email)
+      let person = currentStaff[email]
+      expect(person).to.not.have.property('role')
+      person.role = 'assistant'
+    })
+
+    await addPhotos(config, _.values(currentStaff))
+    _.each(currentStaff, person => {
+      delete(person.image)
+    })
+
+
   }
 }
 
