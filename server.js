@@ -383,6 +383,9 @@ async function addPhotos (config, people) {
         },
         thumbnail
       })
+      existingPhotos[imageHash] = {
+        email: person.email
+      }
     }
   }
 
@@ -1141,7 +1144,7 @@ async function best (config) {
 }
 
 let callTable = {
-  reset, counter, state, staff, students, mailman
+  reset, state, staff, students, mailman
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -1175,8 +1178,6 @@ let queue = asyncLib.queue((unused, callback) => {
   mongo.connect(config.secrets.mongo).then(client => {
     config.client = client
     config.database = client.db(config.database)
-  }).then(() => {
-    reset(config)
   }).then(() => {
     counter(config)
   }).then(() => {
