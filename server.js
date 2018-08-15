@@ -107,14 +107,17 @@ async function counter (config) {
   config.state = _.omit(state, '_id')
 }
 
-function semesterIsActive (semester, config, daysBefore, daysAfter) {
-  let semesterStart = moment.tz(new Date(config.semesters[semester].start), config.timezone)
-  let semesterEnd = moment.tz(new Date(config.semesters[semester].end), config.timezone)
-  daysBefore = daysBefore !== undefined ? daysBefore : config.semesterStartsDaysBefore
-  daysAfter = daysAfter !== undefined ? daysAfter : config.semesterEndsDaysAfter
-  semesterStart = semesterStart.subtract(daysBefore, 'days')
-  semesterEnd = semesterEnd.add(daysAfter, 'end')
-  return runTime.isBetween(semesterStart, semesterEnd)
+function semesterIsActive (semester, daysBefore=0, daysAfter=0) {
+  const semesterStart = moment(semester.start).subtract(daysBefore, 'days')
+  const semesterEnd = moment(semester.end).add(daysAfter, 'days')
+  return moment().isBetween(semesterStart, semesterEnd)
+}
+
+async function getActiveSemesters (database, daysBefore=0, daysAfter=0) {
+  let stateCollection = database.collection('state')
+  return _(await stateCollection.find({ isSemester: true }).toArray()).filter(semester => {
+    return semesterIsActive(semester, daysBefore, daysAfter)
+  }).map('_id').value()
 }
 
 async function state (config) {
@@ -134,7 +137,8 @@ async function state (config) {
           sections,
           start: moment.tz(new Date(semesterConfig.start), config.timezone).toDate(),
           end: moment.tz(new Date(semesterConfig.end), config.timezone).toDate(),
-          counter: config.state.counter
+          counter: config.state.counter,
+          isSemester: true
         }
       })
     } catch (err) {
@@ -408,13 +412,13 @@ async function recordPeople (config, existing, current, semester, staff = false)
 
   for (let email of changes.joined) {
     let person = current[email]
+    person.left = false
     expect(person.semester).to.equal(semester)
     bulkChanges.insert({
       type: 'joined',
       email,
       state: config.state,
-      semester,
-      left: false
+      semester
     })
     peopleCount++
     bulkPeople.find({
@@ -460,6 +464,7 @@ async function recordPeople (config, existing, current, semester, staff = false)
         diff: personDiff
       })
     }
+    peopleCount++
     bulkPeople.find({
       _id: `${email}_${semester}`
     }).update({
@@ -505,12 +510,16 @@ async function getInfoFromSheet (config, info) {
   }).keyBy('email').value()
 }
 
+async function getPeople(database, semester) {
+  return _(await database.collection('people').find({ semester, left: false }).toArray()).map(person => {
+    return _.omit(person, '_id')
+  }).keyBy('email').value()
+}
+
 async function staff (config) {
   let peopleCollection = config.database.collection('people')
 
-  let currentSemesters = _(config.semesters).pickBy((semesterConfig, semester) => {
-    return semesterIsActive(semester, config, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
-  }).keys().value()
+  const currentSemesters = await getActiveSemesters(config.database, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
 
   for (let currentSemester of currentSemesters) {
     let staff = {}
@@ -570,6 +579,7 @@ async function staff (config) {
       let person = currentStaff[email]
       expect(person).to.not.have.property('role')
       person.role = 'TA'
+      person.active = true
     })
     _.each(staff.developers, email => {
       expect(currentStaff).to.have.property(email)
@@ -589,15 +599,33 @@ async function staff (config) {
       instructor: false, staff: true, semester: currentSemester
     }).toArray(), 'email')
     await recordPeople(config, existingStaff, currentStaff, currentSemester, true)
+
+    expect(config.semesters[currentSemester].instructors.length).to.be.at.least(1)
+    let bulkPeople = peopleCollection.initializeUnorderedBulkOp()
+    for (let instructor of config.semesters[currentSemester].instructors) {
+      bulkPeople.find({
+        _id: `${ instructor.email }_${ currentSemester }`
+      }).upsert().replaceOne({
+        email: instructor.email,
+        name: {
+          full: instructor.name
+        },
+        username: emailAddresses.parseOneAddress(instructor.email).local,
+        instructor: true,
+        staff: true,
+        active: true,
+        semester: currentSemester,
+        left: false
+      })
+    }
+    await bulkPeople.execute()
   }
 }
 
 async function students (config) {
   let peopleCollection = config.database.collection('people')
 
-  let currentSemesters = _(config.semesters).pickBy((semesterConfig, semester) => {
-    return semesterIsActive(semester, config, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
-  }).keys().value()
+  const currentSemesters = await getActiveSemesters(config.database, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
 
   for (let currentSemester of currentSemesters) {
     let currentStudents = await getFromMyCS(config, currentSemester, {
@@ -654,7 +682,6 @@ async function students (config) {
       $set: { active: true }
     })
     await peopleCollection.updateMany({
-      instructor: false,
       semester: currentSemester,
       staff: false,
       'state.counter': { $ne: config.state.counter }
@@ -719,12 +746,106 @@ async function people (config) {
   await stateCollection.save(state)
 }
 
+function syncList (names, people, memberFilter, moderatorFilter=null, dryRun=false) {
+  const instructors = _(people).filter(person => {
+    return person.instructor
+  }).value()
+  expect(instructors.length).to.be.at.least(1)
+  const members = _(people).filter(memberFilter).concat(instructors).uniq().value()
+  if (members.length === instructors.length) {
+    log.warn(`${ names.join(",") } has no members`)
+    return
+  }
+  let moderators
+  if (moderatorFilter === null) {
+    moderators = members
+  } else if (moderatorFilter === true) {
+    moderators = instructors
+  } else {
+    moderators = _(people).filter(memberFilter).filter(moderatorFilter).concat(instructors).uniq().value()
+  }
+  moderators = _.map(moderators, 'email')
+  expect(moderators.length).to.be.at.least(instructors.length)
+
+  let membersFile = tmp.fileSync().name
+  fs.writeFileSync(membersFile, _.map(members, p => {
+    return `"${p.name.full}" <${p.email}>`
+  }).join('\n'))
+
+  for (let name of names) {
+    log.debug(`${name} has ${_.keys(members).length} members`)
+    let command
+    command = `sudo remove_members -a -n -N ${name} 2>/dev/null`
+    dryRun ? log.debug(command) : childProcess.execSync(command)
+    command = `sudo add_members -w n -a n -r ${membersFile} ${name} 2>/dev/null`
+    dryRun ? log.debug(command) : childProcess.execSync(command)
+    command = `sudo withlist -r set_mod ${name} -s -a 2>/dev/null`
+    dryRun ? log.debug(command) : childProcess.execSync(command)
+    command = `sudo withlist -r set_mod ${name} -u ${moderators.join(' ')}  2>/dev/null`
+    dryRun ? log.debug(command) : childProcess.execSync(command)
+  }
+}
+
 async function mailman (config) {
 
-  const dryRun = ip.address() === config.mailServer
+  const dryRun = ip.address() !== config.mailServer
   if (dryRun) {
-    log.warn(`Mailmain dry run since we are not on the mail server`)
+    log.warn(`Mailman dry run since we are not on the mail server`)
   }
+  const currentSemesters = await getActiveSemesters(config.database, config.semesterStartsDaysBefore, config.semesterEndsDaysAfter)
+  expect(currentSemesters.length).to.be.within(0, 1)
+  if (currentSemesters.length === 0) {
+    return
+  }
+  const currentSemester = currentSemesters[0]
+  const people = await getPeople(config.database, currentSemester)
+
+  syncList(
+    [`staff`, `staff-${ currentSemester.toLowerCase() }`],
+    people,
+    ({ role }) => { return role === 'TA' },
+    null,
+    dryRun
+  )
+  syncList(
+    [`developers`, `developers-${ currentSemester.toLowerCase() }`],
+    people,
+    ({ role, active }) => { return role === 'developer' && active },
+    null,
+    dryRun
+  )
+  syncList(
+    [`prospective-developers`],
+    people,
+    ({ role }) => { return role === 'developer' },
+    true,
+    dryRun
+  )
+  syncList(
+    [`assistants`, `assistants-${ currentSemester.toLowerCase() }`],
+    people,
+    ({ role, active }) => { return role === 'assistant' && active },
+    ({ role, active }) => { return (role === 'TA' || role === 'developer') && active },
+    dryRun
+  )
+  syncList(
+    [`prospective-assistants`],
+    people,
+    ({ role }) => { return role === 'assistant' },
+    true,
+    dryRun
+  )
+  syncList(
+    [`students`, `students-${ currentSemester.toLowerCase() }`],
+    people,
+    ({ active }) => { return active },
+    ({ role, active }) => { return role === 'TA' && active },
+    dryRun
+  )
+
+  return
+
+  /*
   let existingPeople = await getExistingPeople()
 
   let instructors = _(existingPeople)
@@ -773,6 +894,7 @@ async function mailman (config) {
   syncList('labs', labs)
   syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
   syncList('EMP', EMP, EMP)
+  */
 }
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
@@ -1019,7 +1141,7 @@ async function best (config) {
 }
 
 let callTable = {
-  reset, counter, state, staff, students
+  reset, counter, state, staff, students, mailman
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -1091,18 +1213,19 @@ if (argv._.length === 0 && argv.oneshot) {
     _.each(argv._, command => {
       currentPromise = currentPromise.then(() => {
         return callTable[command](config)
+      }).catch(err => {
+        try {
+          config.client.close()
+        } catch (err) { }
+        console.error(err.stack)
+        process.exit(-1)
       })
     })
-    return currentPromise.then(() => {
-      return config
-    })
-  }).catch(err => {
-    throw err
+    return currentPromise
   }).then(config => {
-    if (config.client) {
+    try {
       config.client.close()
-    }
-  }).then(() => {
+    } catch (err) { }
     process.exit(0)
   })
 } else {
@@ -1116,5 +1239,9 @@ if (argv._.length === 0 && argv.oneshot) {
 process.on('unhandledRejection', (reason, promise) => {
   console.log(reason.stack || reason)
 })
+
+module.exports = {
+  getActiveSemesters
+}
 
 // vim: ts=2:sw=2:et:ft=javascript
