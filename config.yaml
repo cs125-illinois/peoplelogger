@@ -37,6 +37,7 @@ server: 192.17.96.8
 discourse: https://cs125-forum.cs.illinois.edu
 thumbnail: 200.0
 labPrefix: AY
+lecturePrefix: AL
 semesterStartsDaysBefore: 14
 semesterEndsDaysAfter: 14
 timezone: "America/Chicago"

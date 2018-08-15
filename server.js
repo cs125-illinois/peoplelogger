@@ -312,6 +312,33 @@ async function getFromMyCS (config, semester, getConfig) {
   }).keyBy('email').value()
 }
 
+/*
+ * Example object from my.cs.illinois.edu:
+ *
+ * "Action": "",
+ * "Admit Term": "Fall 2017",
+ * "College": "Liberal Arts & Sciences",
+ * "FERPA": "N",
+ * "Gender": "M",
+ * "Level": "1U",
+ * "Major 1 Name": "Computer Sci & Chemistry",
+ * "Name": "Last, First",
+ * "Net ID": "lastfirst",
+ * "UIN": "123456789",
+ * "Year": "Sophomore",
+ * "classes": [
+ *  {
+ *    "class": "CS 125 AL3",
+ *    "CRN": "50158",
+ *    "credits": "4"
+ *  },
+ *  {
+ *    "class": "CS 125 AYT",
+ *    "CRN": "69488"
+ *  }
+ * ],
+ */
+
 const BLANK_PHOTO = 1758209682
 async function addPhotos (config, people) {
   let photoCollection = config.database.collection('photos')
@@ -331,6 +358,7 @@ async function addPhotos (config, people) {
     if (existingPhotos[imageHash]) {
       expect(existingPhotos[imageHash].email).to.equal(person.email)
     } else {
+      person.imageID = imageHash
       let photoData = base64JS.toByteArray(person.image)
       let photoType = imageType(photoData)
       expect(photoType).to.not.be.null()
@@ -374,7 +402,8 @@ async function addPhotos (config, people) {
   }
 }
 
-async function recordPeopleChanges (config, existing, current, semester, type = 'Students') {
+async function recordPeopleChanges (config, existing, current, semester, staff = false) {
+  const type = staff ? 'Staff' : 'Students'
   let peopleCollection = config.database.collection('people')
   let bulkPeople = peopleCollection.initializeUnorderedBulkOp()
   let peopleCount = 0
@@ -449,12 +478,27 @@ async function recordPeopleChanges (config, existing, current, semester, type = 
     }
   }
 
-  bulkChanges.insert({ type: 'counter', state: config.state })
-
+  bulkChanges.insert({ type: 'counter', semester, state: config.state })
   await bulkChanges.execute()
   if (peopleCount > 0) {
     await bulkPeople.execute()
   }
+
+  await peopleCollection.updateMany({
+    semester,
+    staff,
+    'state.counter': { $eq: config.state.counter }
+  }, {
+    $set: { active: true }
+  })
+  await peopleCollection.updateMany({
+    instructor: false,
+    semester,
+    staff,
+    'state.counter': { $ne: config.state.counter }
+  }, {
+    $set: { active: false }
+  })
 }
 
 async function staff (config) {
@@ -491,10 +535,15 @@ async function staff (config) {
 
     expect(_.keys(currentStaff).length).to.equal(staff.all.length)
 
+    await addPhotos(config, _.values(currentStaff))
+
     _.each(currentStaff, staffMember => {
       staffMember.semester = currentSemester
       staffMember.staff = true
       staffMember.student = false
+      delete (staffMember.image)
+      delete (staffMember.sections)
+      delete (staffMember.totalCredits)
     })
     _.each(staff.TAs, email => {
       expect(currentStaff).to.have.property(email)
@@ -515,95 +564,69 @@ async function staff (config) {
       person.role = 'assistant'
     })
 
-    await addPhotos(config, _.values(currentStaff))
-
-    _.each(currentStaff, person => {
-      delete (person.image)
-      delete (person.section)
-      delete (person.totalCredits)
-    })
-
     let existingStaff = _.keyBy(await peopleCollection.find({
       instructor: false, staff: true, semester: currentSemester
     }).toArray(), 'email')
-    await recordPeopleChanges(config, existingStaff, currentStaff, currentSemester, 'Staff')
+    await recordPeopleChanges(config, existingStaff, currentStaff, currentSemester, true)
   }
 }
 
-/*
- * Example object from my.cs.illinois.edu:
- *
- * "Action": "",
- * "Admit Term": "Fall 2017",
- * "College": "Liberal Arts & Sciences",
- * "Degree": "BSLAS",
- * "FERPA": "N",
- * "Gender": "M",
- * "Level": "1U",
- * "Major 1 Name": "Computer Sci & Chemistry",
- * "Name": "Last, First",
- * "Net ID": "lastfirst",
- * "UIN": "123456789",
- * "Year": "Sophomore",
- * "classes": [
- *  {
- *    "class": "CS 125 AL3",
- *    "CRN": "50158",
- *    "credits": "4"
- *  },
- *  {
- *    "class": "CS 125 AYT",
- *    "CRN": "69488"
- *  }
- * ],
- */
+async function students (config) {
+  let peopleCollection = config.database.collection('people')
 
-async function getExistingPeople (collection) {
-  if (!collection) {
-    var client = await mongo.connect(config.secrets.mongo)
-    collection = client.db(config.database).collection('people')
+  let currentSemesters = _(config.semesters).pickBy((semesterConfig, semester) => {
+    return semesterIsActive(semester, config, config.people.startLoggingDaysBefore, config.people.endLoggingDaysAfter)
+  }).keys().value()
+
+  for (let currentSemester of currentSemesters) {
+    let currentStudents = await getFromMyCS(config, currentSemester, {
+      subject: config.subject,
+      semester: config.semesters[currentSemester].name,
+      number: config.number,
+      secrets: config.secrets
+    })
+
+    await addPhotos(config, _.values(currentStudents))
+
+    _.each(currentStudents, student => {
+      student.semester = currentSemester
+      student.staff = false
+      student.student = true
+      student.role = student.totalCredits > 0 ? 'student' : 'other'
+
+      let labs = _(student.sections).map('name').filter(name => {
+        return name.startsWith(config.labPrefix)
+      }).value()
+      if (labs.length === 0) {
+        log.warn(`${student.email} is not assigned to a lab section`)
+      } else if (labs.length > 1) {
+        log.warn(`${student.email} is assigned to multiple lab sections`)
+      } else {
+        student.lab = labs[0]
+      }
+
+      let lectures = _(student.sections).map('name').filter(name => {
+        return name.startsWith(config.lecturePrefix)
+      }).value()
+      if (lectures.length === 0) {
+        log.warn(`${student.email} is not assigned to a lecture`)
+      } else if (lectures.length > 1) {
+        log.warn(`${student.email} is assigned to multiple lectures`)
+      } else {
+        student.lecture = lectures[0]
+      }
+
+      delete (student.image)
+    })
+
+    let existingStudents = _.keyBy(await peopleCollection.find({
+      instructor: false, student: true, semester: currentSemester
+    }).toArray(), 'email')
+    await recordPeopleChanges(config, existingStudents, currentStudents, currentSemester)
   }
-  let people = _.reduce(await collection.find({
-    active: true
-  }).toArray(), (people, person) => {
-    people[person.email] = person
-    return people
-  }, {})
-  if (client) {
-    client.close()
-  }
-  return people
 }
 
-async function getAllPeople (collection) {
-  if (!collection) {
-    var client = await mongo.connect(config.secrets.mongo)
-    collection = client.db(config.database).collection('people')
-  }
-  let people = _.reduce(await collection.find({}).toArray(), (people, person) => {
-    people[person.email] = person
-    return people
-  }, {})
-  if (client) {
-    client.close()
-  }
-  return people
-}
-
-const blankPhoto = '1758209682'
 async function people (config) {
-  /*
-   * Initialize mongo.
-   */
-  let database = config.client.db(config.database)
-
-  let peopleCollection = database.collection('people')
-  let changesCollection = database.collection('peopleChanges')
-  let enrollmentCollection = database.collection('enrollment')
-
-  /*
-   * Grab office hour info.
-   */
   let officeHourStaff = []
   let sheet = await googleSpreadsheetToJSON({
     spreadsheetId: config.officehours,
@@ -625,323 +648,6 @@ async function people (config) {
   })
   officeHourStaff = _.uniq(officeHourStaff)
 
-  /*
-   * Scrape from my.cs.illinois.edu
-   */
-  let getCommand = `casperjs lib/get-my.cs.illinois.edu ${configFile.name}`
-  var options = {
-    maxBuffer: 1024 * 1024 * 1024,
-    timeout: 10 * 60 * 1000
-  }
-  if (config.debugGet) {
-    options.stdio = [0, 1, 2]
-    getCommand += ' --verbose'
-  }
-  if (config.sections) {
-    getCommand += ` --sections=${config.sections}`
-  }
-
-  log.debug(`Running ${getCommand}`)
-  if (config.debugGet) {
-    // Can't recover the JSON in this case, so just return
-    childProcess.execSync(getCommand, options)
-    return
-  }
-  try {
-    var currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
-  } catch (err) {
-    // Throw to make sure that we don't run other tasks
-    throw err
-  }
-  expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
-  log.debug(`Saw ${_.keys(currentPeople).length} people`)
-
-  /*
-   * Get all people before we look at images so that we
-   * can avoid repetitive thumbnail creation.
-   */
-  let allPeople = _.reduce(await peopleCollection.find({
-    instructor: false
-  }).toArray(), (p, person) => {
-    delete (person._id)
-    delete (person.state)
-    p[person.email] = person
-    return p
-  }, {})
-
-  /*
-   * Normalize retrieved data.
-   */
-  const matchClassID = new RegExp('\\s+(\\w+)$')
-  let allSections = {}
-  let normalizedPeople = []
-  for (let person of _.values(currentPeople)) {
-    let email = person['Net ID'] + `@illinois.edu`
-    expect(emailValidator.validate(email)).to.be.true()
-
-    let name = person['Name'].split(',')
-    expect(name).to.have.lengthOf.above(1)
-    let firstName = name[1].trim()
-    let lastName = [name[0].trim(), name.slice(2).join('').trim()].join(' ')
-    if (firstName === '-') {
-      firstName = ''
-    }
-
-    let normalizedPerson = {
-      email: email,
-      admitted: person['Admit Term'],
-      college: person['College'],
-      gender: person['Gender'],
-      level: person['Level'],
-      major: person['Major 1 Name'],
-      hidden: (person['FERPA'] === 'Y'),
-      name: {
-        full: firstName + ' ' + lastName.trim(),
-        first: firstName.trim(),
-        last: lastName.trim()
-      },
-      username: person['Net ID'],
-      ID: person['UIN'],
-      year: person['Year'],
-      instructor: false
-    }
-    let previousPerson = allPeople[normalizedPerson.email]
-
-    if (firstName === '') {
-      normalizedPerson.name.full = lastName
-    }
-    let totalCredits = 0
-    normalizedPerson.sections = _.reduce(person.classes, (all, c) => {
-      c.ID = c['CRN']
-      c.name = matchClassID.exec(c['class'].trim())[0].trim()
-      delete (c['CRN'])
-      delete (c['class'])
-      if (c['credits']) {
-        c['credits'] = parseInt(c['credits'])
-      }
-      if (isNaN(c['credits'])) {
-        delete (c['credits'])
-      } else {
-        totalCredits += c['credits']
-      }
-      all[c.name] = c
-      allSections[c.name] = true
-      normalizedPerson[c.name] = true
-      if (c.name.startsWith(config.labPrefix)) {
-        normalizedPerson.lab = c.name
-      }
-      return all
-    }, {})
-    let photoHash = stringHash(person.image)
-    if (photoHash !== blankPhoto) {
-      let photoData = base64JS.toByteArray(person.image)
-      let photoType = imageType(photoData)
-      expect(photoType).to.not.be.null()
-      var photoSize = imageSize(Buffer.from(photoData))
-      expect(photoSize).to.not.be.null()
-      normalizedPerson.photo = {
-        contents: person.image,
-        type: photoType,
-        size: photoSize,
-        hash: photoHash
-      }
-      if (previousPerson && previousPerson.photo &&
-          previousPerson.thumbnail && (previousPerson.photo.hash === photoHash)) {
-        normalizedPerson.thumbnail = previousPerson.thumbnail
-      }
-      if (!(normalizedPerson.thumbnail)) {
-        let widthRatio = photoSize.width / config.thumbnail
-        let heightRatio = photoSize.height / config.thumbnail
-        let ratio = Math.min(widthRatio, heightRatio)
-        let thumbnail = {
-          type: photoType,
-          size: {
-            width: Math.round(photoSize.width * (1 / ratio)),
-            height: Math.round(photoSize.height * (1 / ratio))
-          }
-        }
-        expect(Math.max(thumbnail.size.width, thumbnail.size.height))
-          .to.be.within(Math.round(config.thumbnail) - 1, Math.round(config.thumbnail) + 1)
-        let thumbnailImage = await resizeImg(Buffer.from(photoData), {
-          width: thumbnail.size.width,
-          height: thumbnail.size.height
-        })
-        thumbnail.contents = base64JS.fromByteArray(thumbnailImage)
-        normalizedPerson.thumbnail = thumbnail
-      }
-
-      // Copy over anything we want to preserve from our previous people.
-      if (previousPerson && previousPerson.survey) {
-        normalizedPerson.survey = previousPerson.survey
-      }
-    }
-
-    if (TAs.indexOf(email) !== -1) {
-      normalizedPerson.role = 'TA'
-      normalizedPerson.staff = true
-      normalizedPerson.student = false
-      normalizedPerson.section = true
-      normalizedPerson.officehours = true
-      normalizedPerson.scheduled = true
-      delete (normalizedPerson.sections)
-      delete (normalizedPerson[config.addTo])
-    } else if (developers.indexOf(email) !== -1) {
-      normalizedPerson.role = 'developer'
-      normalizedPerson.staff = true
-      normalizedPerson.student = false
-      normalizedPerson.section = false
-      normalizedPerson.officehours = false
-      normalizedPerson.scheduled = true
-      delete (normalizedPerson.sections)
-      delete (normalizedPerson[config.addTo])
-    } else if (volunteers.indexOf(email) !== -1) {
-      normalizedPerson.role = 'volunteer'
-      normalizedPerson.staff = true
-      normalizedPerson.student = false
-      normalizedPerson.officehours = (officeHourStaff.indexOf(email) !== -1)
-      normalizedPerson.scheduled = (officeHourStaff.indexOf(email) !== -1)
-      delete (normalizedPerson.sections)
-      delete (normalizedPerson[config.addTo])
-    } else if (totalCredits > 0) {
-      normalizedPerson.student = true
-      normalizedPerson.role = 'student'
-      normalizedPerson.staff = false
-    } else {
-      normalizedPerson.student = false
-      normalizedPerson.role = 'other'
-      normalizedPerson.staff = false
-    }
-    if (normalizedPerson.role === 'TA' || normalizedPerson.role === 'volunteer') {
-      let mySections = allStaff[email]['Section']
-      if (mySections && mySections.trim().length > 0) {
-        let sections = mySections.trim().split(',')
-        _.each(sections, section => {
-          section = section.trim()
-          expect(sectionInfo).to.have.property(section)
-          normalizedPerson[section] = true
-          normalizedPerson.scheduled = true
-          normalizedPerson.section = true
-        })
-        normalizedPerson.sections = sections
-      }
-    }
-    normalizedPeople.push(normalizedPerson)
-  }
-  currentPeople = _.mapKeys(normalizedPeople, person => {
-    return person.email
-  })
-  allSections = _.keys(allSections)
-  _.each(sectionInfo, (section, name) => {
-    if (config.sectionInfo[name]) {
-      section.active = (config.sectionInfo[name].active === true)
-    } else {
-      section.active = (allSections.indexOf(section.name) !== -1)
-    }
-  })
-
-  /*
-   * Save to Mongo.
-   */
-  if (!(config.dry_run)) {
-    var state = await stateCollection.findOne({ _id: 'peoplelogger' })
-    if (state === null) {
-      state = {
-        _id: 'peoplelogger',
-        counter: 1
-      }
-    } else {
-      state.counter++
-    }
-    state.updated = moment().toDate()
-
-    await stateCollection.save({
-      _id: 'sectionInfo',
-      updated: state.updated,
-      sections: sectionInfo
-    })
-  }
-
-  let existingPeople = _.pickBy(allPeople, person => {
-    return person.active
-  })
-  _.each(allPeople, person => {
-    delete (person.active)
-  })
-  _.each(existingPeople, person => {
-    delete (person.active)
-  })
-
-  let joined = _.difference(_.keys(currentPeople), _.keys(existingPeople))
-  let left = _.difference(_.keys(existingPeople), _.keys(currentPeople))
-  let same = _.intersection(_.keys(currentPeople), _.keys(existingPeople))
-  log.debug(`${left.length} left, ${joined.length} joined, ${same.length} same`)
-
-  expect(left.length, 'Everyone left').to.not.equal(existingPeople.length)
-
-  if (config.dry_run) {
-    return
-  }
-
-  let prepareForAddition = (person) => {
-    person._id = person.email
-    person.state = _.omit(state, '_id')
-    return person
-  }
-
-  await Promise.all(_.map(joined, async newPerson => {
-    await changesCollection.insert({
-      type: 'joined',
-      email: currentPeople[newPerson].email,
-      state: _.omit(state, '_id')
-    })
-    if (!(newPerson in allPeople)) {
-      return await peopleCollection.insert(prepareForAddition(currentPeople[newPerson]))
-    } else {
-      same.push(newPerson)
-    }
-  }))
-
-  await Promise.all(_.map(same, async samePerson => {
-    let existingPerson = allPeople[samePerson]
-    let currentPerson = currentPeople[samePerson]
-
-    let personDiff = deepDiff(existingPerson, currentPerson)
-    await peopleCollection.save(prepareForAddition(currentPerson))
-
-    if (personDiff !== undefined) {
-      await changesCollection.insert({
-        type: 'change',
-        email: existingPerson.email,
-        state: _.omit(state, '_id'),
-        diff: personDiff
-      })
-    }
-  }))
-
-  await Promise.all(_.map(left, async leftPerson => {
-    await changesCollection.insert({
-      type: 'left',
-      email: existingPeople[leftPerson].email,
-      state: _.omit(state, '_id')
-    })
-  }))
-
-  await changesCollection.insert({
-    type: 'counter',
-    state: _.omit(state, '_id')
-  })
-
-  await peopleCollection.updateMany({
-    'state.counter': { $eq: state.counter }
-  }, {
-    $set: { active: true }
-  })
-  await peopleCollection.updateMany({
-    instructor: false,
-    'state.counter': { $ne: state.counter }
-  }, {
-    $set: { active: false }
-  })
   let enrollments = {}
   _.each(allSections, section => {
     enrollments[section] = _(currentPeople)
@@ -1277,7 +983,7 @@ async function best (config) {
 }
 
 let callTable = {
-  reset, counter, state, staff
+  reset, counter, state, staff, students
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -1316,7 +1022,9 @@ let queue = asyncLib.queue((unused, callback) => {
   }).then(() => {
     state(config)
   }).then(() => {
-    people(config)
+    staff(config)
+  }).then(() => {
+    students(config)
   }).then(() => {
     mailman(config)
   }).then(() => {
