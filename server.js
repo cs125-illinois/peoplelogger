@@ -878,14 +878,14 @@ async function enrollment (config) {
   await enrollmentCollection.insert(enrollments)
 }
 
-function syncList (names, people, memberFilter, moderatorFilter=null, dryRun=false) {
+function syncList (name, people, memberFilter, moderatorFilter=null, dryRun=false) {
   const instructors = _(people).filter(person => {
     return person.instructor
   }).value()
   expect(instructors.length).to.be.at.least(1)
   const members = _(people).filter(memberFilter).concat(instructors).uniq().value()
   if (members.length === instructors.length) {
-    log.warn(`${ names.join(",") } has no members`)
+    log.warn(`${ name } has no members`)
     return
   }
   let moderators
@@ -904,18 +904,16 @@ function syncList (names, people, memberFilter, moderatorFilter=null, dryRun=fal
     return `"${p.name.full}" <${p.email}>`
   }).join('\n'))
 
-  for (let name of names) {
-    log.debug(`${name} has ${_.keys(members).length} members`)
-    let command
-    command = `sudo remove_members -a -n -N ${name} 2>/dev/null`
-    dryRun ? log.debug(command) : childProcess.execSync(command)
-    command = `sudo add_members -w n -a n -r ${membersFile} ${name} 2>/dev/null`
-    dryRun ? log.debug(command) : childProcess.execSync(command)
-    command = `sudo withlist -r set_mod ${name} -s -a 2>/dev/null`
-    dryRun ? log.debug(command) : childProcess.execSync(command)
-    command = `sudo withlist -r set_mod ${name} -u ${moderators.join(' ')}  2>/dev/null`
-    dryRun ? log.debug(command) : childProcess.execSync(command)
-  }
+  log.debug(`${name} has ${_.keys(members).length} members`)
+  let command
+  command = `sudo remove_members -a -n -N ${name} 2>/dev/null`
+  dryRun ? log.debug(command) : childProcess.execSync(command)
+  command = `sudo add_members -w n -a n -r ${membersFile} ${name} 2>/dev/null`
+  dryRun ? log.debug(command) : childProcess.execSync(command)
+  command = `sudo withlist -r set_mod ${name} -s -a 2>/dev/null`
+  dryRun ? log.debug(command) : childProcess.execSync(command)
+  command = `sudo withlist -r set_mod ${name} -u ${moderators.join(' ')}  2>/dev/null`
+  dryRun ? log.debug(command) : childProcess.execSync(command)
 }
 
 async function mailman (config) {
@@ -933,42 +931,42 @@ async function mailman (config) {
   const people = await getPeople(config.database, currentSemester)
 
   syncList(
-    [`staff`, `staff-${ currentSemester.toLowerCase() }`],
+    `staff`,
     people,
     ({ role }) => { return role === 'TA' },
     null,
     dryRun
   )
   syncList(
-    [`developers`, `developers-${ currentSemester.toLowerCase() }`],
+    `developers`,
     people,
     ({ role, active }) => { return role === 'developer' && active },
     null,
     dryRun
   )
   syncList(
-    [`prospective-developers`],
+    `prospective-developers`,
     people,
     ({ role }) => { return role === 'developer' },
     true,
     dryRun
   )
   syncList(
-    [`assistants`, `assistants-${ currentSemester.toLowerCase() }`],
+    `assistants`,
     people,
     ({ role, active }) => { return role === 'assistant' && active },
     true,
     dryRun
   )
   syncList(
-    [`prospective-assistants`],
+    `prospective-assistants`,
     people,
     ({ role }) => { return role === 'assistant' },
     true,
     dryRun
   )
   syncList(
-    [`students`, `students-${ currentSemester.toLowerCase() }`],
+    `students`,
     people,
     ({ active }) => { return active },
     ({ role, active }) => { return role === 'TA' && active },
