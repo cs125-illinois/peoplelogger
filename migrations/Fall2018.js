@@ -271,8 +271,14 @@ mongo.connect(config.secrets.mongo).then(async client => {
   })
 
   // Sanity checking
-  let peopleMissingSemester = await peopleCollection.find({ semester: { $ne: 'Spring2018' } }).toArray()
+  let peopleMissingSemester = await peopleCollection.find({ semester: { $exists: false } }).toArray()
   expect(peopleMissingSemester.length).to.equal(0)
+
+  let peopleChangesMissingSemester = await peopleChangesCollection.find({ semester: { $exists: false } }).toArray()
+  expect(peopleChangesMissingSemester.length).to.equal(0)
+
+  let enrollmentCollectionMissingSemester = await enrollmentCollection.find({ semester: { $exists: false } }).toArray()
+  expect(enrollmentCollectionMissingSemester.length).to.equal(0)
 
   return client
 }).catch(err => {

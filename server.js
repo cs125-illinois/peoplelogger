@@ -875,8 +875,6 @@ async function enrollment (config) {
   enrollments.staff.total = staff.length
   doBreakdowns(staff, staffBreakdowns, enrollments.staff)
 
-  console.log(`Here`, enrollments)
-  return
   await enrollmentCollection.insert(enrollments)
 }
 
@@ -1257,26 +1255,31 @@ let queue = asyncLib.queue((unused, callback) => {
     config.client = client
     config.database = client.db(config.database)
   }).then(() => {
-    counter(config)
+    return counter(config)
   }).then(() => {
-    state(config)
+    return state(config)
   }).then(() => {
-    staff(config)
+    return staff(config)
   }).then(() => {
-    students(config)
+    return students(config)
   }).then(() => {
-    mailman(config)
+    return enrollment(config)
   }).then(() => {
-    discourse(config)
-  }).then(() => {
-    best(config)
-  }).catch(err => {
-    log.fatal(err)
+    return mailman(config)
   }).then(() => {
     if (config.client) {
       config.client.close()
     }
   })
+  /*
+    .then(() => {
+    discourse(config)
+  }).then(() => {
+    best(config)
+  }).catch(err => {
+    log.fatal(err)
+  })
+  */
   callback()
 }, 1)
 
