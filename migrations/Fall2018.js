@@ -31,7 +31,6 @@ mongo.connect(config.secrets.mongo).then(async client => {
   // Determine counter bounds for Spring 2018
   const springStart = moment.tz(new Date(config.semesters.Spring2018.start), config.timezone).subtract(config.people.startLoggingDaysBefore, 'days')
   const springEnd = moment.tz(new Date(config.semesters.Spring2018.end), config.timezone).add(config.people.endLoggingDaysAfter, 'days')
-  console.log(springStart, springEnd)
 
   const counters = await peopleChangesCollection.find({
     type: 'counter', $or: [
@@ -181,6 +180,14 @@ mongo.connect(config.secrets.mongo).then(async client => {
   }, {
     $set: {
       left: false
+    }
+  })
+  await peopleCollection.updateMany({
+    semester: 'Spring2018',
+    active: false
+  }, {
+    $set: {
+      left: true
     }
   })
   await peopleCollection.updateMany({

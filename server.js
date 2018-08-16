@@ -146,6 +146,19 @@ async function state (config) {
     }
   })
 
+  const currentSemesters = await getActiveSemesters(config.database)
+  expect(currentSemesters.length).to.be.within(0, 1)
+
+  if (currentSemesters.length === 0) {
+    bulkState.find({ _id: "currentSemester" }).upsert().replaceOne({
+      currentSemester: null
+    })
+  } else {
+    bulkState.find({ _id: "currentSemester" }).upsert().replaceOne({
+      currentSemester: currentSemesters[0]
+    })
+  }
+
   await bulkState.execute()
 }
 
