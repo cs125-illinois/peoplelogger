@@ -24,6 +24,7 @@ mongo.connect(config.secrets.mongo).then(async client => {
   let peopleChangesCollection = database.collection('peopleChanges')
   let peopleCollection = database.collection('people')
   let photoCollection = database.collection('photos')
+  let enrollmentCollection = database.collection('enrollment')
 
   // State table
   stateCollection.removeOne({ _id: 'sectionInfo' })
@@ -44,7 +45,7 @@ mongo.connect(config.secrets.mongo).then(async client => {
     if (updateTime.isAfter(springStart) && firstCounter === undefined) {
       firstCounter = counter.state
     }
-    if (updateTime.isAfter(springEnd) && lastCounter === undefined) {
+    if (updateTime.isAfter(springEnd)) {
       break
     }
     lastCounter = counter.state
@@ -59,6 +60,14 @@ mongo.connect(config.secrets.mongo).then(async client => {
     semester: { $exists: false },
     'state.counter': { $gt: lastCounter.counter }
   }, true)
+  await enrollmentCollection.remove({
+    semester: { $exists: false },
+    'state.counter': { $lt: firstCounter.counter }
+  }, true)
+  await enrollmentCollection.remove({
+    semester: { $exists: false },
+    'state.counter': { $gt: lastCounter.counter }
+  }, true)
   await peopleCollection.updateMany({
     semester: { $exists: false },
     'state.counter': { $gt: lastCounter.counter }
@@ -70,6 +79,14 @@ mongo.connect(config.secrets.mongo).then(async client => {
 
   // Set semesters properly
   await peopleChangesCollection.updateMany({
+    'state.counter': { $gte: firstCounter.counter },
+    'state.counter': { $lte: lastCounter.counter }
+  }, {
+    $set: {
+      semester: 'Spring2018'
+    }
+  })
+  await enrollmentCollection.updateMany({
     'state.counter': { $gte: firstCounter.counter },
     'state.counter': { $lte: lastCounter.counter }
   }, {
@@ -173,6 +190,60 @@ mongo.connect(config.secrets.mongo).then(async client => {
     await bulkPeople.execute()
   }
 
+  // Enrollment cleanup
+  let bulkEnrollment = enrollmentCollection.initializeUnorderedBulkOp()
+  let doBulkEnrollment = false
+  let allEnrollments = await enrollmentCollection.find({ semester: 'Spring2018' }).toArray()
+  for (let enrollments of allEnrollments) {
+    if (enrollments.activeStudents) {
+      continue
+    }
+    let newEnrollments = {
+      activeStudents: {
+        lab: {},
+        lecture: {}
+      },
+      staff: {
+        roles: {}
+      },
+      semester: enrollments.semester,
+      state: enrollments.state
+    }
+    let previousID = enrollments._id
+    delete(enrollments._id)
+    delete(enrollments.state)
+    delete(enrollments.semester)
+    let totalStaff = 0, totalStudents = 0
+    for (let key of _.keys(enrollments)) {
+      let count = enrollments[key]
+      if (key === 'TAs') {
+        newEnrollments.staff.roles['TA'] = count
+        totalStaff += count
+      } else if (key === 'volunteers') {
+        newEnrollments.staff.roles['assistant'] = count
+        totalStaff += count
+      } else if (key === 'developers') {
+        newEnrollments.staff.roles['developer'] = count
+        totalStaff += count
+      } else if (key.startsWith('AY')) {
+        newEnrollments.activeStudents.lab[key] = count
+      } else if (key.startsWith('AL')) {
+        newEnrollments.activeStudents.lecture[key] = count
+        totalStudents += count
+      } else {
+        console.error(`Unprocessed key ${ key }`)
+      }
+      newEnrollments.activeStudents.total = totalStudents
+      newEnrollments.staff.total = totalStaff
+    }
+    doBulkEnrollment = true
+    bulkEnrollment.find({ _id: previousID }).replaceOne(newEnrollments)
+  }
+
+  if (doBulkEnrollment) {
+    await bulkEnrollment.execute()
+  }
+
   // Other cleanup
   await peopleCollection.updateMany({
     semester: 'Spring2018',
@@ -199,6 +270,9 @@ mongo.connect(config.secrets.mongo).then(async client => {
     }
   })
 
+  // Sanity checking
+  let peopleMissingSemester = await peopleCollection.find({ semester: { $ne: 'Spring2018' } }).toArray()
+  expect(peopleMissingSemester.length).to.equal(0)
 
   return client
 }).catch(err => {

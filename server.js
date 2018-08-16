@@ -806,6 +806,7 @@ async function enrollment (config) {
     activeStudents: {},
     inactiveStudents: {},
     staff: {},
+    semester: currentSemester,
     state: config.state
   }
 
@@ -832,11 +833,14 @@ async function enrollment (config) {
   }
 
   const activeStudents = _(people).pickBy(({ active, role }) => { return active && role === 'student' }).values().value()
+  enrollments.activeStudents.total = activeStudents.length
   doBreakdowns(activeStudents, studentBreakdowns, enrollments.activeStudents)
   const inActiveStudents = _(people).pickBy(({ active, role }) => { return !active && role === 'student' }).values().value()
+  enrollments.inactiveStudents.total = inActiveStudents.length
   doBreakdowns(inActiveStudents, studentBreakdowns, enrollments.inactiveStudents)
 
   const staffBreakdowns = {
+    'role': true,
     'admitted': true,
     'college': true,
     'gender': true,
@@ -868,8 +872,11 @@ async function enrollment (config) {
   }
 
   const staff = _(people).pickBy(({ active, staff, instructor }) => { return active && staff && !instructor }).values().value()
+  enrollments.staff.total = staff.length
   doBreakdowns(staff, staffBreakdowns, enrollments.staff)
 
+  console.log(`Here`, enrollments)
+  return
   await enrollmentCollection.insert(enrollments)
 }
 
