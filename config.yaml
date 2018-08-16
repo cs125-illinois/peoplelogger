@@ -39,7 +39,7 @@ semesters:
 people:
   startLoggingDaysBefore: 60
   endLoggingDaysAfter: 30
-database: cs125
+databaseName: cs125
 mailServer: 192.17.96.8
 discourse: https://cs125-forum.cs.illinois.edu
 thumbnail: 200.0

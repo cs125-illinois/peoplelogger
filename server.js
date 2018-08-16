@@ -103,7 +103,7 @@ async function counter (config) {
     state.counter++
   }
   state.updated = runTime.toDate()
-  await stateCollection.save(state)
+  await stateCollection.replaceOne(state, { upsert: true })
   config.state = _.omit(state, '_id')
 }
 
@@ -713,61 +713,6 @@ async function students (config) {
   }
 }
 
-async function people (config) {
-  let officeHourStaff = []
-  let sheet = await googleSpreadsheetToJSON({
-    spreadsheetId: config.officehours,
-    credentials: config.secrets.google,
-    propertyMode: 'none',
-    worksheet: [ 'Weekly Schedule' ]
-  })
-  _.each(sheet, inner => {
-    _.each(inner, row => {
-      if (row['Assistants']) {
-        _.each(row['Assistants'].toString().split(','), email => {
-          email = `${email.toLowerCase().trim()}@illinois.edu`
-          if (staff.indexOf(email) !== -1) {
-            officeHourStaff.push(email)
-          }
-        })
-      }
-    })
-  })
-  officeHourStaff = _.uniq(officeHourStaff)
-
-  let enrollments = {}
-  _.each(allSections, section => {
-    enrollments[section] = _(currentPeople)
-      .filter(person => {
-        if (person.role !== 'student') {
-          return false
-        }
-        if (!(section in person.sections)) {
-          return false
-        }
-        let totalCredits = 0
-        _.each(person.sections, section => {
-          if (section.credits) {
-            totalCredits += section.credits
-          }
-        })
-        return totalCredits > 0
-      })
-      .value().length
-  })
-  enrollments['TAs'] = TAs.length
-  enrollments['volunteers'] = _(currentPeople)
-    .filter(person => {
-      return person.role === 'volunteer' && person.scheduled
-    })
-    .value().length
-  enrollments['developers'] = developers.length
-  enrollments.state = _.omit(state, '_id')
-
-  await enrollmentCollection.insert(enrollments)
-  await stateCollection.save(state)
-}
-
 function doBreakdowns (people, breakdowns, enrollments) {
   _.each(_.keys(breakdowns), name => {
     enrollments[name] = {}
@@ -875,7 +820,7 @@ async function enrollment (config) {
   enrollments.staff.total = staff.length
   doBreakdowns(staff, staffBreakdowns, enrollments.staff)
 
-  await enrollmentCollection.insert(enrollments)
+  await enrollmentCollection.insertOne(enrollments)
 }
 
 function syncList (name, people, memberFilter, moderatorFilter=null, dryRun=false) {
@@ -973,6 +918,30 @@ async function mailman (config) {
     dryRun
   )
 }
+
+async function people (config) {
+  let officeHourStaff = []
+  let sheet = await googleSpreadsheetToJSON({
+    spreadsheetId: config.officehours,
+    credentials: config.secrets.google,
+    propertyMode: 'none',
+    worksheet: [ 'Weekly Schedule' ]
+  })
+  _.each(sheet, inner => {
+    _.each(inner, row => {
+      if (row['Assistants']) {
+        _.each(row['Assistants'].toString().split(','), email => {
+          email = `${email.toLowerCase().trim()}@illinois.edu`
+          if (staff.indexOf(email) !== -1) {
+            officeHourStaff.push(email)
+          }
+        })
+      }
+    })
+  })
+  officeHourStaff = _.uniq(officeHourStaff)
+}
+
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
 async function discourse (config) {
@@ -1249,7 +1218,7 @@ expect(config).to.not.have.property('counter')
 let queue = asyncLib.queue((unused, callback) => {
   runTime = moment()
 
-  mongo.connect(config.secrets.mongo).then(client => {
+  mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(client => {
     config.client = client
     config.database = client.db(config.database)
   }).then(() => {
@@ -1286,9 +1255,9 @@ if (argv._.length === 0 && argv.oneshot) {
 } else if (argv._.length !== 0) {
   runTime = moment()
 
-  mongo.connect(config.secrets.mongo).then(client => {
+  mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(client => {
     config.client = client
-    config.database = client.db(config.database)
+    config.database = client.db(config.databaseName)
     let currentPromise = counter(config)
     _.each(argv._, command => {
       currentPromise = currentPromise.then(() => {
@@ -1305,6 +1274,7 @@ if (argv._.length === 0 && argv.oneshot) {
   }).then(config => {
     try {
       config.client.close()
+      delete(config.client)
     } catch (err) { }
     process.exit(0)
   })
