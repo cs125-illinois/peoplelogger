@@ -532,6 +532,12 @@ async function getPeople(database, semester) {
   }).keyBy('email').value()
 }
 
+async function getAllPeople(database, semester) {
+  return _(await database.collection('people').find({ semester }).toArray()).map(person => {
+    return _.omit(person, '_id')
+  }).keyBy('email').value()
+}
+
 async function staff (config) {
   let peopleCollection = config.database.collection('people')
 
@@ -762,6 +768,111 @@ async function people (config) {
   await stateCollection.save(state)
 }
 
+function doBreakdowns (people, breakdowns, enrollments) {
+  _.each(_.keys(breakdowns), name => {
+    enrollments[name] = {}
+  })
+  for (let person of people) {
+    _.each(breakdowns, (determine, name) => {
+      let value
+      if (determine === true) {
+        value = person[name]
+      } else {
+        value = determine(person, enrollments[name])
+      }
+      if (value === undefined) {
+        log.warn(`Enrollment key ${ name } missing from ${ person }`)
+      }
+      if (!(value in enrollments[name])) {
+        enrollments[name][value] = 0
+      }
+      enrollments[name][value]++
+    })
+  }
+}
+
+async function enrollment (config) {
+  let enrollmentCollection = config.database.collection('enrollment')
+
+  const currentSemesters = await getActiveSemesters(config.database, config.semesterStartsDaysBefore, config.semesterEndsDaysAfter)
+  expect(currentSemesters.length).to.be.within(0, 1)
+  if (currentSemesters.length === 0) {
+    return
+  }
+  const currentSemester = currentSemesters[0]
+  const people = await getAllPeople(config.database, currentSemester)
+
+  let enrollments = {
+    activeStudents: {},
+    inactiveStudents: {},
+    staff: {},
+    state: config.state
+  }
+
+  const studentBreakdowns = {
+    'admitted': true,
+    'college': true,
+    'gender': true,
+    'level': true,
+    'major': true,
+    'year': true,
+    'CS': ({ major }) => {
+      if (major === 'Computer Science') {
+        return 'CS'
+      } else if (major === 'Computer Engineering') {
+        return 'CE'
+      } else if (major.includes('Computer Science') || major.includes('Computer Sci')) {
+        return 'CS+X'
+      } else {
+        return 'Other'
+      }
+    },
+    'lab': true,
+    'lecture': true
+  }
+
+  const activeStudents = _(people).pickBy(({ active, role }) => { return active && role === 'student' }).values().value()
+  doBreakdowns(activeStudents, studentBreakdowns, enrollments.activeStudents)
+  const inActiveStudents = _(people).pickBy(({ active, role }) => { return !active && role === 'student' }).values().value()
+  doBreakdowns(inActiveStudents, studentBreakdowns, enrollments.inactiveStudents)
+
+  const staffBreakdowns = {
+    'admitted': true,
+    'college': true,
+    'gender': true,
+    'level': true,
+    'major': true,
+    'year': true,
+    'CS': ({ major }) => {
+      if (major === 'Computer Science') {
+        return 'CS'
+      } else if (major === 'Computer Engineering') {
+        return 'CE'
+      } else if (major.includes('Computer Science') || major.includes('Computer Sci')) {
+        return 'CS+X'
+      } else {
+        return 'Other'
+      }
+    },
+    'sections': ({ sections }, sectionCounts) => {
+      if (!sections) {
+        return
+      }
+      for (let section of sections) {
+        if (!(section in sectionCounts)) {
+          sectionCounts[section] = 0
+        }
+        sectionCounts[section]++
+      }
+    }
+  }
+
+  const staff = _(people).pickBy(({ active, staff, instructor }) => { return active && staff && !instructor }).values().value()
+  doBreakdowns(staff, staffBreakdowns, enrollments.staff)
+
+  await enrollmentCollection.insert(enrollments)
+}
+
 function syncList (names, people, memberFilter, moderatorFilter=null, dryRun=false) {
   const instructors = _(people).filter(person => {
     return person.instructor
@@ -841,7 +952,7 @@ async function mailman (config) {
     [`assistants`, `assistants-${ currentSemester.toLowerCase() }`],
     people,
     ({ role, active }) => { return role === 'assistant' && active },
-    ({ role, active }) => { return (role === 'TA' || role === 'developer') && active },
+    true,
     dryRun
   )
   syncList(
@@ -858,59 +969,6 @@ async function mailman (config) {
     ({ role, active }) => { return role === 'TA' && active },
     dryRun
   )
-
-  return
-
-  /*
-  let existingPeople = await getExistingPeople()
-
-  let instructors = _(existingPeople)
-    .filter(p => {
-      return p.instructor === true
-    })
-    .reduce((people, person) => {
-      people[person.email] = person
-      return people
-    }, {})
-
-  let syncList = (name, members, moderators) => {
-    members = _.extend(_.clone(members), instructors)
-    moderators = _.map(_.extend(_.clone(moderators), instructors), 'email')
-    let membersFile = tmp.fileSync().name
-    fs.writeFileSync(membersFile, _.map(members, p => {
-      return `"${p.name.full}" <${p.email}>`
-    }).join('\n'))
-    log.debug(`${name} has ${_.keys(members).length} members`)
-    childProcess.execSync(`sudo remove_members -a -n -N ${name} 2>/dev/null`)
-    childProcess.execSync(`sudo add_members -w n -a n -r ${membersFile} ${name} 2>/dev/null`)
-    childProcess.execSync(`sudo withlist -r set_mod ${name} -s -a 2>/dev/null`)
-    childProcess.execSync(`sudo withlist -r set_mod ${name} -u ${moderators.join(' ')}  2>/dev/null`)
-  }
-  let TAs = _.pickBy(existingPeople, person => {
-    return person.role === 'TA'
-  })
-  let volunteers = _.pickBy(existingPeople, person => {
-    return person.role === 'volunteer'
-  })
-  let developers = _.pickBy(existingPeople, person => {
-    return person.role === 'developer'
-  })
-  let students = _.pickBy(existingPeople, person => {
-    return person.role === 'student'
-  })
-  let labs = _.pickBy(existingPeople, person => {
-    return person.section === true
-  })
-  let EMP = _.pickBy(existingPeople, person => {
-    return person.staff && person.EMP
-  })
-  syncList('staff', TAs, TAs)
-  syncList('assistants', volunteers)
-  syncList('developers', developers)
-  syncList('labs', labs)
-  syncList('students', _.extend(_.clone(students), TAs, volunteers, developers), TAs)
-  syncList('EMP', EMP, EMP)
-  */
 }
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
@@ -1157,7 +1215,7 @@ async function best (config) {
 }
 
 let callTable = {
-  reset, state, staff, students, mailman
+  reset, state, staff, students, enrollment, mailman
 }
 
 let argv = require('minimist')(process.argv.slice(2))
