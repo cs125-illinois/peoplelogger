@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-LOCAL="127.0.0.1:27017"
-mongo $LOCAL/cs125 --eval "db.photos.drop()"
-mongoimport --drop -h "$LOCAL" -d cs125 -c state fixtures/loadState.json && \
-mongoimport --drop -h "$LOCAL" -d cs125 -c people fixtures/loadPeople.json && \
-mongoimport --drop -h "$LOCAL" -d cs125 -c peopleChanges fixtures/loadPeopleChanges.json && \
-mongoimport --drop -h "$LOCAL" -d cs125 -c enrollment fixtures/loadEnrollment.json
+LOCAL="mongodb://127.0.0.1:27017/cs125"
+mongo $LOCAL --eval "db.photos.drop()"
+mongoimport --drop --uri="$LOCAL" -c state fixtures/loadState.json && \
+mongoimport --drop --uri="$LOCAL" -c people fixtures/loadPeople.json && \
+mongoimport --drop --uri="$LOCAL" -c peopleChanges fixtures/loadPeopleChanges.json && \
+mongoimport --drop --uri="$LOCAL" -c enrollment fixtures/loadEnrollment.json
