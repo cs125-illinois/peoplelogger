@@ -121,7 +121,6 @@ mongo.connect(config.secrets.mongo).then(async client => {
 
   // Fix photos
   let doPhotos = false, doPeople = false
-  const BLANK_PHOTO = 1758209682
   for (let person of people) {
     if (!person.photo && !person.imageID) {
       expect(person.thumbnail).to.be.undefined
@@ -132,7 +131,6 @@ mongo.connect(config.secrets.mongo).then(async client => {
       continue
     }
     const imageHash = person.photo.hash || stringHash(person.photo.contents)
-    console.log(imageHash)
     if (existingPhotos[imageHash]) {
       expect(existingPhotos[imageHash].email).to.equal(person.email)
     } else {
@@ -175,6 +173,25 @@ mongo.connect(config.secrets.mongo).then(async client => {
   if (doPeople) {
     await bulkPeople.execute()
   }
+
+  // Other cleanup
+  await peopleCollection.updateMany({
+    semester: 'Spring2018',
+    active: true
+  }, {
+    $set: {
+      left: false
+    }
+  })
+  await peopleCollection.updateMany({
+    semester: 'Spring2018',
+    role: 'volunteer'
+  }, {
+    $set: {
+      role: 'assistant'
+    }
+  })
+
 
   return client
 }).catch(err => {
