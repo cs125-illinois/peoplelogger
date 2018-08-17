@@ -1220,7 +1220,7 @@ let queue = asyncLib.queue((unused, callback) => {
 
   mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(client => {
     config.client = client
-    config.database = client.db(config.database)
+    config.database = client.db(config.databaseName)
   }).then(() => {
     return counter(config)
   }).then(() => {
