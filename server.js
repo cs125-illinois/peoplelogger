@@ -529,16 +529,24 @@ async function getInfoFromSheet (config, info) {
   }).keyBy('email').value()
 }
 
-async function getPeople(database, semester) {
+async function getSemesterPeople(database, semester) {
   return _(await database.collection('people').find({ semester, left: false }).toArray()).map(person => {
     return _.omit(person, '_id')
   }).keyBy('email').value()
 }
 
-async function getAllPeople(database, semester) {
+async function getAllSemesterPeople(database, semester) {
   return _(await database.collection('people').find({ semester }).toArray()).map(person => {
     return _.omit(person, '_id')
   }).keyBy('email').value()
+}
+
+async function getAllPeople(database) {
+  return _(await database.collection('people').find({}).toArray()).map(person => {
+    return _.omit(person, '_id')
+  }).keyBy(person => {
+    return `${ person.email }_${ person.semester }`
+  }).value()
 }
 
 async function staff (config) {
@@ -748,7 +756,7 @@ async function enrollment (config) {
     return
   }
   const currentSemester = currentSemesters[0]
-  const people = await getAllPeople(config.database, currentSemester)
+  const people = await getAllSemesterPeople(config.database, currentSemester)
 
   let enrollments = {
     activeStudents: {},
@@ -878,7 +886,7 @@ async function mailman (config) {
     return
   }
   const currentSemester = currentSemesters[0]
-  const people = await getPeople(config.database, currentSemester)
+  const people = await getSemesterPeople(config.database, currentSemester)
 
   syncList(
     `staff`,
@@ -980,7 +988,104 @@ async function callDiscourseAPI (config, request) {
   return result.body
 }
 
-const passwordOptions = { minimumLength: 10, maximumLength: 12 }
+async function getAllDiscourseUsers (config) {
+  let discourseUsers = {}
+  for (let page = 0; ; page++) {
+    let newUsers = await callDiscourseAPI(config, {
+      verb: 'get',
+      path: 'admin/users/list/active.json',
+      query: {
+        show_emails: true, page: page + 1
+      }
+    })
+    if (newUsers.length === 0) {
+      break
+    }
+    _.each(newUsers, user => {
+      if (user.id <= 0 || user.admin) {
+        return
+      }
+      expect(emailValidator.validate(user.email)).to.be.true()
+      if (emailAddresses.parseOneAddress(user.email).domain !== 'illinois.edu') {
+        return
+      }
+      discourseUsers[user.email] = user
+    })
+  }
+  log.debug(`Found ${ _.keys(discourseUsers).length } Discourse users`)
+
+  return discourseUsers
+}
+
+async function getAllDiscourseGroups (config) {
+  let discourseGroups = {}
+  for (let page = 0; ; page++) {
+    let newGroups = await callDiscourseAPI(config, {
+      verb: 'get',
+      path: 'groups.json',
+      query: {
+        page: page + 0
+      }
+    })
+    if (newGroups.groups.length === 0) {
+      break
+    }
+    _.each(newGroups.groups, group => {
+      discourseGroups[group.name] = group
+    })
+  }
+  log.debug(`Found ${ _.keys(discourseGroups).length } Discourse groups`)
+
+  return discourseGroups
+}
+
+const PASSWORD_OPTIONS = { minimumLength: 10, maximumLength: 12 }
+async function createDiscourseUser (config, person) {
+  await callDiscourseAPI(config, {
+    verb: 'post',
+    path: 'users',
+    body: {
+      name: person.name.full,
+      email: person.email,
+      username: emailAddresses.parseOneAddress(person.email).local,
+      password: passwordGenerator.generatePassword(PASSWORD_OPTIONS),
+      active: 1,
+      approved: 1
+    }
+  })
+}
+
+async function syncUserGroups (config, user, discourseGroups, autoGroups, userGroups, userPrimaryGroup) {
+  expect(userGroups.indexOf(userPrimaryGroup)).to.not.equal(-1)
+
+  const shouldBeIn = _(autoGroups).filter(name => {
+    return userGroups.indexOf(name) !== -1
+  }).map(name => {
+    return discourseGroups[name].id
+  }).value()
+  const shouldNotBeIn = _(autoGroups).filter(name => {
+    return userGroups.indexOf(name) === -1
+  }).map(name => {
+    return discourseGroups[name].id
+  }).value()
+  expect(shouldBeIn.length + shouldNotBeIn.length).to.equal(autoGroups.length)
+  log.debug(`About to assign ${ user.email } to ${ shouldBeIn.length } groups`)
+
+  console.log(user)
+
+  /*
+  expect(discourseGroups).to.have.property(userPrimaryGroup)
+  await callDiscourseAPI(config, {
+    verb: 'put',
+    path: `/admin/users/2/primary_group`,
+    body: {
+      primary_group_id: discourseGroups[userPrimaryGroup].id
+    }
+  })
+  */
+
+}
+
 async function discourse (config) {
 
   await callDiscourseAPI(config, {
@@ -991,8 +1096,6 @@ async function discourse (config) {
     }
   })
 
-  return
-
   await callDiscourseAPI(config, {
     verb: 'put',
     path: 'admin/site_settings/enable_local_logins',
@@ -1001,60 +1104,119 @@ async function discourse (config) {
     }
   })
 
-
-  await callDiscourseAPI('put', 'admin/site_settings/enable_local_logins', null, {
-    enable_local_logins: false
+  let discourseUsers = await getAllDiscourseUsers(config)
+  const people = _.pickBy(await getAllPeople(config.database), person => {
+    return !person.instructor
   })
 
-  let getAllUsers = async () => {
-    let discoursePeople = {}
-    for (let page = 0; ; page++) {
-      let newUsers = await callDiscourseAPI('get', 'admin/users/list/active.json', {
-        show_emails: true, page: page + 1
-      })
-      if (newUsers.length === 0) {
-        break
-      }
-      _.each(newUsers, user => {
-        if (user.id <= 0 || user.admin) {
-          return
-        }
-        expect(emailValidator.validate(user.email)).to.be.true()
-        if (emailAddresses.parseOneAddress(user.email).domain !== 'illinois.edu') {
-          return
-        }
-        discoursePeople[user.email] = user
-      })
+  let createdUser = false
+  for (let person of _.values(people)) {
+    if (!(person.email in discourseUsers)) {
+      await createDiscourseUser(config, person)
+      createdUser = true
     }
-    return discoursePeople
   }
 
-  /*
-   * Create new users.
-   */
-  let discoursePeople = await getAllUsers()
-  log.debug(`Retrieved ${_.keys(discoursePeople).length} users`)
-  let create = _.difference(_.keys(existingPeople), _.keys(discoursePeople))
-  if (create.length > 0) {
-    log.debug(`Creating ${create.length}`)
-    let createUsers = async create => {
-      for (let user of _.values(_.pick(existingPeople, create))) {
-        await callDiscourseAPI('post', 'users', null, {
-          name: user.name.full,
-          email: user.email,
-          username: emailAddresses.parseOneAddress(user.email).local,
-          password: passwordGenerator.generatePassword(passwordOptions),
-          active: 1,
-          approved: 1
-        })
-      }
-    }
-    await createUsers(create)
-
-    discoursePeople = await getAllUsers()
-    create = _.difference(_.keys(existingPeople), _.keys(discoursePeople))
-    expect(create).to.have.lengthOf(0)
+  if (createdUser) {
+    discourseUsers = await getAllDiscourseUsers(config)
+    expect(_.difference(_.keys(people), _.keys(discoursePeople)).length).to.equal(0)
   }
+
+  const groups = await getAllDiscourseGroups(config)
+
+  const currentSemesters = await getActiveSemesters(config.database)
+  expect(currentSemesters.length).to.be.within(0, 1)
+  const currentSemester = currentSemesters.length === 1 ? currentSemesters[0] : undefined
+
+  let autoGroups = []
+  let userGroups = {}, primaryGroup = {}
+  for (let person of _.values(people)) {
+    userGroups[person.email] = []
+  }
+  _.each(config.semesters, (semesterConfig, semester) => {
+    const semesterPeople = _.filter(people, person => {
+      return person.semester === semester
+    })
+    const students = _(semesterPeople).values().filter(person => {
+      return person.role === 'student' && person.active
+    }).map('email').value()
+    const TAs = _(semesterPeople).values().filter(person => {
+      return person.role === 'TA'
+    }).map('email').value()
+    const CAs = _(semesterPeople).values().filter(person => {
+      return person.role === 'assistant' && person.active
+    }).map('email').value()
+    const developers = _(semesterPeople).values().filter(person => {
+      return person.role === 'developer'
+    }).map('email').value()
+    const inactive = _(semesterPeople).values().filter(person => {
+      return students.indexOf(person.email) === -1 &&
+        TAs.indexOf(person.email) === -1 &&
+        CAs.indexOf(person.email) === -1 &&
+        developers.indexOf(person.email) === -1
+    }).map('email').value()
+    log.debug(`${ semester } has ${ students.length } active students, ${ TAs.length } TAs, ${ CAs.length } active CAs, ${ developers.length } developers, and ${ inactive.length } inactive users`)
+    expect(students.length + TAs.length + CAs.length + developers.length + inactive.length).to.equal(semesterPeople.length)
+
+    autoGroups = autoGroups.concat([
+      `${ semester }`,
+      `${ semester }-TAs`,
+      `${ semester }-CAs`,
+      `${ semester }-CDs`,
+      `${ semester }-Inactive`
+    ])
+
+    _.each(students, email => {
+      userGroups[email].push(`${ semester }`)
+      primaryGroup[email] = `${ semester }`
+    })
+    _.each(TAs, email => {
+      userGroups[email].push(`${ semester }`)
+      userGroups[email].push(`${ semester }-TAs`)
+      primaryGroup[email] = `${ semester }-TAs`
+      userGroups[email].push(`${ semester }-Staff`)
+    })
+    _.each(CAs, email => {
+      userGroups[email].push(`${ semester }`)
+      userGroups[email].push(`${ semester }-CAs`)
+      primaryGroup[email] = `${ semester }-CAs`
+      userGroups[email].push(`${ semester }-Staff`)
+    })
+    _.each(developers, email => {
+      userGroups[email].push(`${ semester }`)
+      userGroups[email].push(`${ semester }-CDs`)
+      primaryGroup[email] = `${ semester }-CDs`
+      userGroups[email].push(`${ semester }-Staff`)
+    })
+    _.each(inactive, email => {
+      userGroups[email].push(`${ semester }-Inactive`)
+      primaryGroup[email] = `${ semester }-Inactive`
+    })
+  })
+
+  for (let group of autoGroups) {
+    expect(groups).to.have.property(group)
+    const groupInfo = groups[group]
+    expect(groupInfo.automatic).to.equal(false)
+  }
+
+  await callDiscourseAPI(config, {
+    verb: 'put',
+    path: 'admin/site_settings/enable_local_logins',
+    body: {
+      enable_local_logins: false
+    }
+  })
+
+  for (let email of _.keys(discourseUsers)) {
+    if (!(email in userGroups)) {
+      userGroups[email] = [ 'Fall2017' ]
+      primaryGroup[email] = 'Fall2017'
+    }
+    await syncUserGroups (config, discourseUsers[email], groups, autoGroups, userGroups[email], primaryGroup[email])
+  }
+
+  return
 
   /*
    * Suspend users that have left.
