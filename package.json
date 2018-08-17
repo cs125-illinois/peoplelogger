@@ -28,6 +28,8 @@
     "email-validator": "^2.0.4",
     "eslint-plugin-standard": "^3.1.0",
     "google-spreadsheet-to-json": "^1.0.0",
+    "got": "^9.0.0",
+    "gravatar": "^1.6.0",
     "image-size": "^0.6.3",
     "image-type": "^3.0.0",
     "ip": "^1.1.5",
