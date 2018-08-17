@@ -12,12 +12,10 @@ const npmPath = require('npm-path')
 const chai = require('chai')
 const expect = chai.expect
 chai.use(require('dirty-chai'))
-const childProcess = require('child_process')
 const emailValidator = require('email-validator')
 const mongo = require('mongodb').MongoClient
 const moment = require('moment-timezone')
 const emailAddresses = require('email-addresses')
-const ip = require('ip')
 const asyncLib = require('async')
 const requestJSON = require('request-json')
 const queryString = require('query-string')
@@ -53,103 +51,7 @@ const counter = require('./lib/counter')
 const state = require('./lib/state')
 const people = require('./lib/people')
 const enrollment = require('./lib/enrollment')
-
-function syncList (name, people, memberFilter, moderatorFilter = null, dryRun = false) {
-  const instructors = _(people).filter(person => {
-    return person.instructor
-  }).value()
-  expect(instructors.length).to.be.at.least(1)
-  const members = _(people).filter(memberFilter).concat(instructors).uniq().value()
-  if (members.length === instructors.length) {
-    log.warn(`${name} has no members`)
-    return
-  }
-  let moderators
-  if (moderatorFilter === null) {
-    moderators = members
-  } else if (moderatorFilter === true) {
-    moderators = instructors
-  } else {
-    moderators = _(people).filter(memberFilter).filter(moderatorFilter).concat(instructors).uniq().value()
-  }
-  moderators = _.map(moderators, 'email')
-  expect(moderators.length).to.be.at.least(instructors.length)
-
-  let membersFile = tmp.fileSync().name
-  fs.writeFileSync(membersFile, _.map(members, p => {
-    return `"${p.name.full}" <${p.email}>`
-  }).join('\n'))
-
-  log.debug(`${name} has ${_.keys(members).length} members`)
-  let command
-  command = `sudo remove_members -a -n -N ${name} 2>/dev/null`
-  dryRun ? log.debug(command) : childProcess.execSync(command)
-  command = `sudo add_members -w n -a n -r ${membersFile} ${name} 2>/dev/null`
-  dryRun ? log.debug(command) : childProcess.execSync(command)
-  command = `sudo withlist -r set_mod ${name} -s -a 2>/dev/null`
-  dryRun ? log.debug(command) : childProcess.execSync(command)
-  command = `sudo withlist -r set_mod ${name} -u ${moderators.join(' ')}  2>/dev/null`
-  dryRun ? log.debug(command) : childProcess.execSync(command)
-
-  fs.unlinkSync(membersFile)
-}
-
-async function mailman (config) {
-  const dryRun = ip.address() !== config.mailServer
-  if (dryRun) {
-    log.warn(`Mailman dry run since we are not on the mail server`)
-  }
-  const currentSemesters = await getActiveSemesters(config.database, config.semesterStartsDaysBefore, config.semesterEndsDaysAfter)
-  expect(currentSemesters.length).to.be.within(0, 1)
-  if (currentSemesters.length === 0) {
-    return
-  }
-  const currentSemester = currentSemesters[0]
-  const people = await getSemesterPeople(config.database, currentSemester)
-
-  syncList(
-    `staff`,
-    people,
-    ({ role }) => { return role === 'TA' },
-    null,
-    dryRun
-  )
-  syncList(
-    `developers`,
-    people,
-    ({ role, active }) => { return role === 'developer' && active },
-    null,
-    dryRun
-  )
-  syncList(
-    `prospective-developers`,
-    people,
-    ({ role }) => { return role === 'developer' },
-    true,
-    dryRun
-  )
-  syncList(
-    `assistants`,
-    people,
-    ({ role, active }) => { return role === 'assistant' && active },
-    true,
-    dryRun
-  )
-  syncList(
-    `prospective-assistants`,
-    people,
-    ({ role }) => { return role === 'assistant' },
-    true,
-    dryRun
-  )
-  syncList(
-    `students`,
-    people,
-    ({ active }) => { return active },
-    ({ role, active }) => { return role === 'TA' && active },
-    dryRun
-  )
-}
+const mailman = require('./lib/mailman')
 
 async function callDiscourseAPI (config, request) {
   let discourseClient = requestJSON.createClient(config.discourseURL)
@@ -606,7 +508,7 @@ let callTable = {
   staff: people.staff,
   students: people.students,
   enrollment: enrollment.enrollment,
-  mailman,
+  mailman: mailman.mailman,
   updateDiscourseUsers,
   discourse
 }
