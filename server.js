@@ -190,6 +190,7 @@ function addStaffToMyCS (config, semester, emails) {
   log.debug(`Running ${addCommand}`)
   try {
     childProcess.execSync(addCommand, options)
+    fs.unlinkSync(configFile.name)
   } catch (err) {
     log.warn(err)
   }
@@ -236,10 +237,12 @@ async function getFromMyCS (config, semester, getConfig) {
   if (config.debugGet) {
     // Can't recover the JSON in this case, so just return
     childProcess.execSync(getCommand, options)
+    fs.unlinkSync(configFile.name)
     return
   }
   try {
     var currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
+    fs.unlinkSync(configFile.name)
   } catch (err) {
     // Throw to make sure that we don't run other tasks
     throw err
@@ -859,6 +862,8 @@ function syncList (name, people, memberFilter, moderatorFilter=null, dryRun=fals
   dryRun ? log.debug(command) : childProcess.execSync(command)
   command = `sudo withlist -r set_mod ${name} -u ${moderators.join(' ')}  2>/dev/null`
   dryRun ? log.debug(command) : childProcess.execSync(command)
+
+  fs.unlinkSync(membersFile)
 }
 
 async function mailman (config) {
