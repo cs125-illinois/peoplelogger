@@ -17,7 +17,7 @@ let config = _.extend(
   jsYAML.safeLoad(fs.readFileSync('./secrets.yaml', 'utf8'))
 )
 
-mongo.connect(config.secrets.mongo).then(async client => {
+mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
   const database = client.db(config.database)
 
   let stateCollection = database.collection('state')
@@ -27,7 +27,7 @@ mongo.connect(config.secrets.mongo).then(async client => {
   let enrollmentCollection = database.collection('enrollment')
 
   // State table
-  stateCollection.removeOne({ _id: 'sectionInfo' })
+  stateCollection.deleteOne({ _id: 'sectionInfo' })
 
   // Determine counter bounds for Spring 2018
   const springStart = moment.tz(new Date(config.semesters.Spring2018.start), config.timezone).subtract(config.people.startLoggingDaysBefore, 'days')
@@ -53,19 +53,19 @@ mongo.connect(config.secrets.mongo).then(async client => {
   }
 
   // Fix bad counters
-  await peopleChangesCollection.remove({
+  await peopleChangesCollection.deleteMany({
     semester: { $exists: false },
     'state.counter': { $lt: firstCounter.counter }
   }, true)
-  await peopleChangesCollection.remove({
+  await peopleChangesCollection.deleteMany({
     semester: { $exists: false },
     'state.counter': { $gt: lastCounter.counter }
   }, true)
-  await enrollmentCollection.remove({
+  await enrollmentCollection.deleteMany({
     semester: { $exists: false },
     'state.counter': { $lt: firstCounter.counter }
   }, true)
-  await enrollmentCollection.remove({
+  await enrollmentCollection.deleteMany({
     semester: { $exists: false },
     'state.counter': { $gt: lastCounter.counter }
   }, true)
@@ -109,7 +109,7 @@ mongo.connect(config.secrets.mongo).then(async client => {
       semester: 'Spring2018'
     }
   })
-  await peopleCollection.update({
+  await peopleCollection.updateOne({
     _id: 'challen@illinois.edu'
   }, {
     $set: {
@@ -131,8 +131,8 @@ mongo.connect(config.secrets.mongo).then(async client => {
       continue
     }
     person._id = `${person.email}_Spring2018`
-    await peopleCollection.insert(person)
-    await peopleCollection.remove({ _id: person.email }, true)
+    await peopleCollection.insertOne(person)
+    await peopleCollection.deleteOne({ _id: person.email }, true)
   }
   expect(peopleLength).to.equal((await peopleCollection.find({ semester: 'Spring2018' }).toArray()).length)
 
