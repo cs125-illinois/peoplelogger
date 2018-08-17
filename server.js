@@ -52,116 +52,7 @@ const reset = require('./lib/reset')
 const counter = require('./lib/counter')
 const state = require('./lib/state')
 const people = require('./lib/people')
-
-function doBreakdowns (people, breakdowns, enrollments) {
-  _.each(_.keys(breakdowns), name => {
-    enrollments[name] = {}
-  })
-  for (let person of people) {
-    _.each(breakdowns, (determine, name) => {
-      let value
-      if (determine === true) {
-        value = person[name]
-      } else {
-        value = determine(person, enrollments[name])
-      }
-      if (value === undefined) {
-        log.warn(`Enrollment key ${name} missing from ${person}`)
-      }
-      if (!(value in enrollments[name])) {
-        enrollments[name][value] = 0
-      }
-      enrollments[name][value]++
-    })
-  }
-}
-
-async function enrollment (config) {
-  let enrollmentCollection = config.database.collection('enrollment')
-
-  const currentSemesters = await getActiveSemesters(config.database, config.semesterStartsDaysBefore, config.semesterEndsDaysAfter)
-  expect(currentSemesters.length).to.be.within(0, 1)
-  if (currentSemesters.length === 0) {
-    return
-  }
-  const currentSemester = currentSemesters[0]
-  const people = await getAllSemesterPeople(config.database, currentSemester)
-
-  let enrollments = {
-    activeStudents: {},
-    inactiveStudents: {},
-    staff: {},
-    semester: currentSemester,
-    state: config.state
-  }
-
-  const studentBreakdowns = {
-    'admitted': true,
-    'college': true,
-    'gender': true,
-    'level': true,
-    'major': true,
-    'year': true,
-    'CS': ({ major }) => {
-      if (major === 'Computer Science') {
-        return 'CS'
-      } else if (major === 'Computer Engineering') {
-        return 'CE'
-      } else if (major.includes('Computer Science') || major.includes('Computer Sci')) {
-        return 'CS+X'
-      } else {
-        return 'Other'
-      }
-    },
-    'lab': true,
-    'lecture': true
-  }
-
-  const activeStudents = _(people).pickBy(({ active, role }) => { return active && role === 'student' }).values().value()
-  enrollments.activeStudents.total = activeStudents.length
-  doBreakdowns(activeStudents, studentBreakdowns, enrollments.activeStudents)
-  const inActiveStudents = _(people).pickBy(({ active, role }) => { return !active && role === 'student' }).values().value()
-  enrollments.inactiveStudents.total = inActiveStudents.length
-  doBreakdowns(inActiveStudents, studentBreakdowns, enrollments.inactiveStudents)
-
-  const staffBreakdowns = {
-    'role': true,
-    'admitted': true,
-    'college': true,
-    'gender': true,
-    'level': true,
-    'major': true,
-    'year': true,
-    'CS': ({ major }) => {
-      if (major === 'Computer Science') {
-        return 'CS'
-      } else if (major === 'Computer Engineering') {
-        return 'CE'
-      } else if (major.includes('Computer Science') || major.includes('Computer Sci')) {
-        return 'CS+X'
-      } else {
-        return 'Other'
-      }
-    },
-    'sections': ({ sections }, sectionCounts) => {
-      if (!sections) {
-        return
-      }
-      for (let section of sections) {
-        if (!(section in sectionCounts)) {
-          sectionCounts[section] = 0
-        }
-        sectionCounts[section]++
-      }
-    }
-  }
-
-  const staff = _(people).pickBy(({ active, staff, instructor }) => { return active && staff && !instructor }).values().value()
-  enrollments.staff.total = staff.length
-  doBreakdowns(staff, staffBreakdowns, enrollments.staff)
-
-  await enrollmentCollection.insertOne(enrollments)
-}
+const enrollment = require('./lib/enrollment')
 
 function syncList (name, people, memberFilter, moderatorFilter = null, dryRun = false) {
   const instructors = _(people).filter(person => {
@@ -714,7 +605,7 @@ let callTable = {
   state: state.state,
   staff: people.staff,
   students: people.students,
-  enrollment,
+  enrollment: enrollment.enrollment,
   mailman,
   updateDiscourseUsers,
   discourse
