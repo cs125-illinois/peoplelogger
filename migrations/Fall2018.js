@@ -278,6 +278,15 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
       role: 'assistant'
     }
   })
+  await peopleCollection.updateMany({
+    semester: 'Spring2018',
+    role: 'assistant',
+    scheduled: false
+  }, {
+    $set: {
+      active: false
+    }
+  })
 
   // Sanity checking
   let peopleMissingSemester = await peopleCollection.find({ semester: { $exists: false } }).toArray()

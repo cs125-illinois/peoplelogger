@@ -39,6 +39,7 @@ semesters:
 people:
   startLoggingDaysBefore: 60
   endLoggingDaysAfter: 30
+  CAActiveGracePeriodDays: 14
 databaseName: cs125
 mailServer: 192.17.96.8
 discourseURL: https://cs125-forum.cs.illinois.edu
