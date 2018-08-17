@@ -48,44 +48,6 @@ const mailman = require('./lib/mailman')
 const discourse = require('./lib/discourse')
 const gravatar = require('./lib/gravatar')
 
-async function best (config) {
-  /*
-   * Update bestGrades to reflect staff and active students.
-   */
-
-  let client = await mongo.connect(config.secrets.mongo)
-  let database = client.db(config.database)
-
-  let allPeople = await getAllPeople(database.collection('people'))
-  let bestGrades = database.collection('bestGrades')
-
-  for (let person of _.values(allPeople)) {
-    let data = {
-      gender: person.gender,
-      level: person.level,
-      year: person.year,
-      admitted: person.admitted,
-      college: person.college,
-      major: person.major
-    }
-    if (!person.active) {
-      data.left = person.state.updated
-    }
-    if (person.survey) {
-      data.survey = person.survey
-    }
-    await bestGrades.update({
-      email: person.email
-    }, {
-      $set: {
-        staff: person.staff, active: person.active, data
-      }
-    })
-  }
-
-  client.close()
-}
-
 let callTable = {
   reset: reset.reset,
   state: state.state,
@@ -142,19 +104,21 @@ let queue = asyncLib.queue((unused, callback) => {
   }).then(() => {
     return enrollment.enrollment(config)
   }).then(() => {
+    return gravatar.gravatar(config)
+  }).then(() => {
     return mailman.mailman(config)
   }).then(() => {
     return discourse.update(config)
   }).then(() => {
     return discourse.discourse(config)
   }).then(() => {
+    return discourse.gravatars(config)
+  }).then(() => {
     if (config.client) {
       config.client.close()
     }
   })
   /*
-    .then(() => {
-    discourse(config)
   }).then(() => {
     best(config)
   }).catch(err => {
@@ -195,7 +159,7 @@ if (argv._.length === 0 && argv.oneshot) {
   })
 } else {
   let CronJob = require('cron').CronJob
-  let job = new CronJob('0 0 * * * *', async () => { // eslint-disable-line no-unused-vars
+  let job = new CronJob('0 0 */2 * * *', async () => { // eslint-disable-line no-unused-vars
     queue.push({})
   }, null, true, 'America/Chicago')
   queue.push({})
