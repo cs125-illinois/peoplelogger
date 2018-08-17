@@ -25,7 +25,6 @@ const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 const emailAddresses = require('email-addresses')
 const ip = require('ip')
 const asyncLib = require('async')
-const promptly = require('promptly')
 const requestJSON = require('request-json')
 const queryString = require('query-string')
 const StrictPasswordGenerator = require('strict-password-generator').default
@@ -54,113 +53,11 @@ const log = bunyan.createLogger({
   ]
 })
 
-let runTime
 npmPath.setSync()
 
-async function resetSemester (config, semester) {
-  let stateCollection = config.database.collection('state')
-  let peopleCollection = config.database.collection('people')
-  let changesCollection = config.database.collection('peopleChanges')
-  let enrollmentCollection = config.database.collection('enrollment')
-
-  await stateCollection.deleteMany({ _id: semester })
-  await peopleCollection.deleteMany({ semester })
-  await changesCollection.deleteMany({ semester })
-  await enrollmentCollection.deleteMany({ semester })
-}
-
-async function reset (config) {
-  let stateCollection = config.database.collection('state')
-
-  if (config.resetAll) {
-    let reset = await promptly.choose('Are you sure you want to reset the entire peoplelogger database?', ['yes', 'no'])
-    if (reset === 'yes') {
-      for (let semester of _.keys(config.semesters)) {
-        await resetSemester(config, semester)
-      }
-    } else {
-      log.debug('Skipping reset')
-    }
-  } else if (config.resetOne) {
-    let reset = await promptly.choose(`Are you sure you want to reset the ${config.resetOne} peoplelogger database?`, ['yes', 'no'])
-    if (reset === 'yes') {
-      await resetSemester(config, config.resetOne)
-    } else {
-      log.debug('Skipping reset')
-    }
-  }
-}
-
-async function counter (config) {
-  let stateCollection = config.database.collection('state')
-  let state = await stateCollection.findOne({ _id: 'peoplelogger' })
-  if (state === null) {
-    state = {
-      _id: 'peoplelogger',
-      counter: 1
-    }
-  } else {
-    state.counter++
-  }
-  state.updated = runTime.toDate()
-  await stateCollection.replaceOne(state, { upsert: true })
-  config.state = _.omit(state, '_id')
-}
-
-function semesterIsActive (semester, daysBefore=0, daysAfter=0) {
-  const semesterStart = moment(semester.start).subtract(daysBefore, 'days')
-  const semesterEnd = moment(semester.end).add(daysAfter, 'days')
-  return moment().isBetween(semesterStart, semesterEnd)
-}
-
-async function getActiveSemesters (database, daysBefore=0, daysAfter=0) {
-  let stateCollection = database.collection('state')
-  return _(await stateCollection.find({ isSemester: true }).toArray()).filter(semester => {
-    return semesterIsActive(semester, daysBefore, daysAfter)
-  }).map('_id').value()
-}
-
-async function state (config) {
-  let stateCollection = config.database.collection('state')
-  let bulkState = stateCollection.initializeUnorderedBulkOp()
-
-  _.each(config.semesters, (semesterConfig, semester) => {
-    let sectionCommand = `./lib/get-courses.illinois.edu ${semesterConfig.courses}`
-    log.debug(`Running ${sectionCommand}`)
-    try {
-      let sections = JSON.parse(childProcess.execSync(sectionCommand))
-      if (semesterConfig.extraSections) {
-        sections = _.extend(sections, semesterConfig.extraSections)
-      }
-      bulkState.find({ _id: semester }).upsert().update({
-        $set: {
-          sections,
-          start: moment.tz(new Date(semesterConfig.start), config.timezone).toDate(),
-          end: moment.tz(new Date(semesterConfig.end), config.timezone).toDate(),
-          counter: config.state.counter,
-          isSemester: true
-        }
-      })
-    } catch (err) {
-      throw err
-    }
-  })
-
-  const currentSemesters = await getActiveSemesters(config.database)
-  expect(currentSemesters.length).to.be.within(0, 1)
-
-  if (currentSemesters.length === 0) {
-    bulkState.find({ _id: "currentSemester" }).upsert().replaceOne({
-      currentSemester: null
-    })
-  } else {
-    bulkState.find({ _id: "currentSemester" }).upsert().replaceOne({
-      currentSemester: currentSemesters[0]
-    })
-  }
-
-  await bulkState.execute()
-}
+const reset = require('./lib/reset')
+const counter = require('./lib/counter')
+const state = require('./lib/state')
 
 function addStaffToMyCS (config, semester, emails) {
   let netIDs = _.map(emails, email => {
@@ -529,23 +426,23 @@ async function getInfoFromSheet (config, info) {
   }).keyBy('email').value()
 }
 
-async function getSemesterPeople(database, semester) {
+async function getSemesterPeople (database, semester) {
   return _(await database.collection('people').find({ semester, left: false }).toArray()).map(person => {
     return _.omit(person, '_id')
   }).keyBy('email').value()
 }
 
-async function getAllSemesterPeople(database, semester) {
+async function getAllSemesterPeople (database, semester) {
   return _(await database.collection('people').find({ semester }).toArray()).map(person => {
     return _.omit(person, '_id')
   }).keyBy('email').value()
 }
 
-async function getAllPeople(database) {
+async function getAllPeople (database) {
   return _(await database.collection('people').find({}).toArray()).map(person => {
     return _.omit(person, '_id')
   }).keyBy(person => {
-    return `${ person.email }_${ person.semester }`
+    return `${person.email}_${person.semester}`
   }).value()
 }
 
@@ -637,7 +534,7 @@ async function staff (config) {
     let bulkPeople = peopleCollection.initializeUnorderedBulkOp()
     for (let instructor of config.semesters[currentSemester].instructors) {
       bulkPeople.find({
-        _id: `${ instructor.email }_${ currentSemester }`
+        _id: `${instructor.email}_${currentSemester}`
       }).upsert().replaceOne({
         email: instructor.email,
         name: {
@@ -737,7 +634,7 @@ function doBreakdowns (people, breakdowns, enrollments) {
         value = determine(person, enrollments[name])
       }
       if (value === undefined) {
-        log.warn(`Enrollment key ${ name } missing from ${ person }`)
+        log.warn(`Enrollment key ${name} missing from ${person}`)
       }
       if (!(value in enrollments[name])) {
         enrollments[name][value] = 0
@@ -834,14 +731,14 @@ async function enrollment (config) {
   await enrollmentCollection.insertOne(enrollments)
 }
 
-function syncList (name, people, memberFilter, moderatorFilter=null, dryRun=false) {
+function syncList (name, people, memberFilter, moderatorFilter = null, dryRun = false) {
   const instructors = _(people).filter(person => {
     return person.instructor
   }).value()
   expect(instructors.length).to.be.at.least(1)
   const members = _(people).filter(memberFilter).concat(instructors).uniq().value()
   if (members.length === instructors.length) {
-    log.warn(`${ name } has no members`)
+    log.warn(`${name} has no members`)
     return
   }
   let moderators
@@ -875,7 +772,6 @@ function syncList (name, people, memberFilter, moderatorFilter=null, dryRun=fals
 }
 
 async function mailman (config) {
-
   const dryRun = ip.address() !== config.mailServer
   if (dryRun) {
     log.warn(`Mailman dry run since we are not on the mail server`)
@@ -988,8 +884,22 @@ async function callDiscourseAPI (config, request) {
   return result.body
 }
 
-async function getAllDiscourseUsers (config) {
-  let discourseUsers = {}
+async function updateDiscourseUsers (config) {
+  let peopleCollection = config.database.collection('people')
+  let bulkPeople = peopleCollection.initializeUnorderedBulkOp()
+  let discourseCollection = config.database.collection('discourse')
+  let bulkDiscourse = discourseCollection.initializeUnorderedBulkOp()
+
+  let allEmails = _(await config.database.collection('people').find({}).toArray()).map('email').uniq().value()
+
+  const currentSemesters = await getActiveSemesters(config.database, config.semesterStartsDaysBefore, config.semesterEndsDaysAfter)
+  expect(currentSemesters.length).to.be.within(0, 1)
+  let semesterEmails = []
+  if (currentSemesters.length === 1) {
+    semesterEmails = _(await config.database.collection('people').find({ semester: currentSemesters[0] }).toArray()).map('email').uniq().value()
+  }
+
+  let discourseUsers = {}, doPeople = false, doDiscourse = false
   for (let page = 0; ; page++) {
     let newUsers = await callDiscourseAPI(config, {
       verb: 'get',
@@ -1002,7 +912,7 @@ async function getAllDiscourseUsers (config) {
       break
     }
     _.each(newUsers, user => {
-      if (user.id <= 0 || user.admin) {
+      if (user.id <= 0 || user.admin || allEmails.indexOf(user.email) === -1) {
         return
       }
       expect(emailValidator.validate(user.email)).to.be.true()
@@ -1012,9 +922,38 @@ async function getAllDiscourseUsers (config) {
       discourseUsers[user.email] = user
     })
   }
-  log.debug(`Found ${ _.keys(discourseUsers).length } Discourse users`)
+  log.debug(`Found ${_.keys(discourseUsers).length} Discourse users`)
 
-  return discourseUsers
+  for (let user of _.values(discourseUsers)) {
+    let detailedUserInfo = await callDiscourseAPI(config, {
+      verb: 'get',
+      path: `admin/users/${user.id}.json`
+    })
+    detailedUserInfo.groupIDs = _.map(detailedUserInfo.groups, 'id')
+    detailedUserInfo.primaryGroupID = _(detailedUserInfo.groups).filter(group => {
+      return group.primary_group
+    }).map('id').value()[0]
+    delete (detailedUserInfo.groups)
+    doPeople = true
+    bulkPeople.find({ email: user.email }).update({
+      $set: {
+        discourseUser: detailedUserInfo
+      }
+    })
+    if (semesterEmails.indexOf(user.email) !== -1) {
+      doDiscourse = true
+      bulkDiscourse.insert({
+        state: config.state,
+        ...detailedUserInfo
+      })
+    }
+  }
+  if (doPeople) {
+    await bulkPeople.execute()
+  }
+  if (doDiscourse) {
+    await bulkDiscourse.execute()
+  }
 }
 
 async function getAllDiscourseGroups (config) {
@@ -1034,14 +973,19 @@ async function getAllDiscourseGroups (config) {
       discourseGroups[group.name] = group
     })
   }
-  log.debug(`Found ${ _.keys(discourseGroups).length } Discourse groups`)
+  log.debug(`Found ${_.keys(discourseGroups).length} Discourse groups`)
 
   return discourseGroups
 }
 
 const PASSWORD_OPTIONS = { minimumLength: 10, maximumLength: 12 }
 async function createDiscourseUser (config, person) {
-  await callDiscourseAPI(config, {
+  let peopleCollection = config.database.collection('people')
+  let discourseCollection = config.database.collection('discourse')
+
+  log.debug(`Creating ${person.email}`)
+
+  const newUser = await callDiscourseAPI(config, {
     verb: 'post',
     path: 'users',
     body: {
@@ -1051,6 +995,21 @@ async function createDiscourseUser (config, person) {
       password: passwordGenerator.generatePassword(PASSWORD_OPTIONS),
       active: 1,
       approved: 1
+    }
+  })
+
+  let detailedUserInfo = await callDiscourseAPI(config, {
+    verb: 'get',
+    path: `admin/users/${newUser.user_id}.json`
+  })
+  detailedUserInfo.groupIDs = _.map(detailedUserInfo.groups, 'id')
+  detailedUserInfo.primaryGroupID = _(detailedUserInfo.groups).filter(group => {
+    return group.primary_group
+  }).map('id').value()[0]
+
+  await peopleCollection.updateMany({ email: person.email }, {
+    $set: {
+      discourseUser: detailedUserInfo
     }
   })
 }
@@ -1069,33 +1028,20 @@ async function syncUserGroups (config, user, discourseGroups, autoGroups, userGr
     return discourseGroups[name].id
   }).value()
   expect(shouldBeIn.length + shouldNotBeIn.length).to.equal(autoGroups.length)
-  log.debug(`About to assign ${ user.email } to ${ shouldBeIn.length } groups`)
-
-  console.log(user)
 
   /*
   expect(discourseGroups).to.have.property(userPrimaryGroup)
   await callDiscourseAPI(config, {
     verb: 'put',
-    path: `/admin/users/2/primary_group`,
+    path: `/admin/users/{ user.id }/primary_group`,
     body: {
       primary_group_id: discourseGroups[userPrimaryGroup].id
     }
   })
   */
-
 }
 
 async function discourse (config) {
-
-  await callDiscourseAPI(config, {
-    verb: 'put',
-    path: `/admin/users/2/primary_group`,
-    body: {
-      primary_group_id: 41
-    }
-  })
-
   await callDiscourseAPI(config, {
     verb: 'put',
     path: 'admin/site_settings/enable_local_logins',
@@ -1104,23 +1050,18 @@ async function discourse (config) {
     }
   })
 
-  let discourseUsers = await getAllDiscourseUsers(config)
-  const people = _.pickBy(await getAllPeople(config.database), person => {
+  let people = _(await getAllPeople(config.database)).pickBy(person => {
     return !person.instructor
-  })
-
-  let createdUser = false
+  }).values().keyBy('email').value()
   for (let person of _.values(people)) {
-    if (!(person.email in discourseUsers)) {
+    if (!(person.discourseUser)) {
       await createDiscourseUser(config, person)
-      createdUser = true
     }
   }
-
-  if (createdUser) {
-    discourseUsers = await getAllDiscourseUsers(config)
-    expect(_.difference(_.keys(people), _.keys(discoursePeople)).length).to.equal(0)
-  }
+  people = _(await getAllPeople(config.database)).pickBy(person => {
+    return !person.instructor
+  }).values().keyBy('email').value()
+  expect(_.filter(people, person => { return !person.discourseUser }).length).to.equal(0)
 
   const groups = await getAllDiscourseGroups(config)
 
@@ -1155,42 +1096,42 @@ async function discourse (config) {
         CAs.indexOf(person.email) === -1 &&
         developers.indexOf(person.email) === -1
     }).map('email').value()
-    log.debug(`${ semester } has ${ students.length } active students, ${ TAs.length } TAs, ${ CAs.length } active CAs, ${ developers.length } developers, and ${ inactive.length } inactive users`)
+    log.debug(`${semester} has ${students.length} active students, ${TAs.length} TAs, ${CAs.length} active CAs, ${developers.length} developers, and ${inactive.length} inactive users`)
     expect(students.length + TAs.length + CAs.length + developers.length + inactive.length).to.equal(semesterPeople.length)
 
     autoGroups = autoGroups.concat([
-      `${ semester }`,
-      `${ semester }-TAs`,
-      `${ semester }-CAs`,
-      `${ semester }-CDs`,
-      `${ semester }-Inactive`
+      `${semester}`,
+      `${semester}-TAs`,
+      `${semester}-CAs`,
+      `${semester}-CDs`,
+      `${semester}-Inactive`
     ])
 
     _.each(students, email => {
-      userGroups[email].push(`${ semester }`)
-      primaryGroup[email] = `${ semester }`
+      userGroups[email].push(`${semester}`)
+      primaryGroup[email] = `${semester}`
     })
     _.each(TAs, email => {
-      userGroups[email].push(`${ semester }`)
-      userGroups[email].push(`${ semester }-TAs`)
-      primaryGroup[email] = `${ semester }-TAs`
-      userGroups[email].push(`${ semester }-Staff`)
+      userGroups[email].push(`${semester}`)
+      userGroups[email].push(`${semester}-TAs`)
+      primaryGroup[email] = `${semester}-TAs`
+      userGroups[email].push(`${semester}-Staff`)
     })
     _.each(CAs, email => {
-      userGroups[email].push(`${ semester }`)
-      userGroups[email].push(`${ semester }-CAs`)
-      primaryGroup[email] = `${ semester }-CAs`
-      userGroups[email].push(`${ semester }-Staff`)
+      userGroups[email].push(`${semester}`)
+      userGroups[email].push(`${semester}-CAs`)
+      primaryGroup[email] = `${semester}-CAs`
+      userGroups[email].push(`${semester}-Staff`)
     })
     _.each(developers, email => {
-      userGroups[email].push(`${ semester }`)
-      userGroups[email].push(`${ semester }-CDs`)
-      primaryGroup[email] = `${ semester }-CDs`
-      userGroups[email].push(`${ semester }-Staff`)
+      userGroups[email].push(`${semester}`)
+      userGroups[email].push(`${semester}-CDs`)
+      primaryGroup[email] = `${semester}-CDs`
+      userGroups[email].push(`${semester}-Staff`)
     })
     _.each(inactive, email => {
-      userGroups[email].push(`${ semester }-Inactive`)
-      primaryGroup[email] = `${ semester }-Inactive`
+      userGroups[email].push(`${semester}-Inactive`)
+      primaryGroup[email] = `${semester}-Inactive`
     })
   })
 
@@ -1200,6 +1141,14 @@ async function discourse (config) {
     expect(groupInfo.automatic).to.equal(false)
   }
 
+  for (let email of _.keys(discourseUsers)) {
+    if (!(email in userGroups)) {
+      userGroups[email] = [ 'Fall2017' ]
+      primaryGroup[email] = 'Fall2017'
+    }
+    await syncUserGroups(config, discourseUsers[email], groups, autoGroups, userGroups[email], primaryGroup[email])
+  }
+
   await callDiscourseAPI(config, {
     verb: 'put',
     path: 'admin/site_settings/enable_local_logins',
@@ -1207,14 +1156,6 @@ async function discourse (config) {
       enable_local_logins: false
     }
   })
-
-  for (let email of _.keys(discourseUsers)) {
-    if (!(email in userGroups)) {
-      userGroups[email] = [ 'Fall2017' ]
-      primaryGroup[email] = 'Fall2017'
-    }
-    await syncUserGroups (config, discourseUsers[email], groups, autoGroups, userGroups[email], primaryGroup[email])
-  }
 
   return
 
@@ -1360,7 +1301,7 @@ async function best (config) {
 }
 
 let callTable = {
-  reset, state, staff, students, enrollment, mailman, discourse
+  reset, state, staff, students, enrollment, mailman, updateDiscourseUsers, discourse
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -1389,15 +1330,16 @@ log.debug(_.omit(config, 'secrets'))
 expect(config).to.not.have.property('counter')
 
 let queue = asyncLib.queue((unused, callback) => {
-  runTime = moment()
+  config.runTime = moment()
+  config.log = log
 
   mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(client => {
     config.client = client
     config.database = client.db(config.databaseName)
   }).then(() => {
-    return counter(config)
+    return counter.counter(config)
   }).then(() => {
-    return state(config)
+    return state.state(config)
   }).then(() => {
     return staff(config)
   }).then(() => {
@@ -1426,15 +1368,16 @@ let queue = asyncLib.queue((unused, callback) => {
 if (argv._.length === 0 && argv.oneshot) {
   queue.push({})
 } else if (argv._.length !== 0) {
-  runTime = moment()
+  config.log = log
+  config.runTime = moment()
 
   mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(client => {
     config.client = client
     config.database = client.db(config.databaseName)
-    let currentPromise = counter(config)
+    let currentPromise = counter.counter(config)
     _.each(argv._, command => {
       currentPromise = currentPromise.then(() => {
-        return callTable[command](config)
+        return callTable[command][command](config)
       }).catch(err => {
         try {
           config.client.close()
@@ -1447,7 +1390,7 @@ if (argv._.length === 0 && argv.oneshot) {
   }).then(config => {
     try {
       config.client.close()
-      delete(config.client)
+      delete (config.client)
     } catch (err) { }
     process.exit(0)
   })
@@ -1462,9 +1405,5 @@ if (argv._.length === 0 && argv.oneshot) {
 process.on('unhandledRejection', (reason, promise) => {
   console.log(reason.stack || reason)
 })
-
-module.exports = {
-  getActiveSemesters
-}
 
 // vim: ts=2:sw=2:et:ft=javascript

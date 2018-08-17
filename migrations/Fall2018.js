@@ -14,7 +14,7 @@ const stringHash = require('string-hash')
 
 let config = _.extend(
   jsYAML.safeLoad(fs.readFileSync('./config.yaml', 'utf8')),
-  jsYAML.safeLoad(fs.readFileSync('./secrets.yaml', 'utf8')),
+  jsYAML.safeLoad(fs.readFileSync('./secrets.yaml', 'utf8'))
 )
 
 mongo.connect(config.secrets.mongo).then(async client => {
@@ -34,8 +34,9 @@ mongo.connect(config.secrets.mongo).then(async client => {
   const springEnd = moment.tz(new Date(config.semesters.Spring2018.end), config.timezone).add(config.people.endLoggingDaysAfter, 'days')
 
   const counters = await peopleChangesCollection.find({
-    type: 'counter', $or: [
-      { semester: { $exists: false }},
+    type: 'counter',
+    $or: [
+      { semester: { $exists: false } },
       { semester: 'Spring2018' }
     ]}).toArray()
 
@@ -79,24 +80,30 @@ mongo.connect(config.secrets.mongo).then(async client => {
 
   // Set semesters properly
   await peopleChangesCollection.updateMany({
-    'state.counter': { $gte: firstCounter.counter },
-    'state.counter': { $lte: lastCounter.counter }
+    'state.counter': {
+      $gte: firstCounter.counter,
+      $lte: lastCounter.counter
+    }
   }, {
     $set: {
       semester: 'Spring2018'
     }
   })
   await enrollmentCollection.updateMany({
-    'state.counter': { $gte: firstCounter.counter },
-    'state.counter': { $lte: lastCounter.counter }
+    'state.counter': {
+      $gte: firstCounter.counter,
+      $lte: lastCounter.counter
+    }
   }, {
     $set: {
       semester: 'Spring2018'
     }
   })
   await peopleCollection.updateMany({
-    'state.counter': { $gte: firstCounter.counter },
-    'state.counter': { $lte: lastCounter.counter }
+    'state.counter': {
+      $gte: firstCounter.counter,
+      $lte: lastCounter.counter
+    }
   }, {
     $set: {
       semester: 'Spring2018'
@@ -111,9 +118,9 @@ mongo.connect(config.secrets.mongo).then(async client => {
   })
 
   // Validate semester setting
-  const changesNoSemester = await peopleChangesCollection.find({ semester: { $exists: false }}).toArray()
+  const changesNoSemester = await peopleChangesCollection.find({ semester: { $exists: false } }).toArray()
   expect(changesNoSemester.length).to.equal(0)
-  const peopleNoSemester = await peopleCollection.find({ semester: { $exists: false }}).toArray()
+  const peopleNoSemester = await peopleCollection.find({ semester: { $exists: false } }).toArray()
   expect(peopleNoSemester.length).to.equal(0)
 
   // Fix people IDs
@@ -123,11 +130,11 @@ mongo.connect(config.secrets.mongo).then(async client => {
     if (person._id.endsWith('_Spring2018')) {
       continue
     }
-    person._id = `${ person.email }_Spring2018`
+    person._id = `${person.email}_Spring2018`
     await peopleCollection.insert(person)
     await peopleCollection.remove({ _id: person.email }, true)
   }
-  expect(peopleLength).to.equal((await peopleCollection.find({ semester: 'Spring2018'}).toArray()).length)
+  expect(peopleLength).to.equal((await peopleCollection.find({ semester: 'Spring2018' }).toArray()).length)
 
   let existingPhotos = _.keyBy(await photoCollection.find({}).project({
     _id: 1, email: 1
@@ -136,10 +143,11 @@ mongo.connect(config.secrets.mongo).then(async client => {
   let bulkPeople = peopleCollection.initializeUnorderedBulkOp()
 
   // Fix photos
-  let doPhotos = false, doPeople = false
+  let doPhotos = false
+  let doPeople = false
   for (let person of people) {
     if (!person.photo && !person.imageID) {
-      expect(person.thumbnail).to.be.undefined
+      expect(person.thumbnail).to.be.undefined()
       continue
     }
     if (person.imageID) {
@@ -210,10 +218,11 @@ mongo.connect(config.secrets.mongo).then(async client => {
       state: enrollments.state
     }
     let previousID = enrollments._id
-    delete(enrollments._id)
-    delete(enrollments.state)
-    delete(enrollments.semester)
-    let totalStaff = 0, totalStudents = 0
+    delete (enrollments._id)
+    delete (enrollments.state)
+    delete (enrollments.semester)
+    let totalStaff = 0
+    let totalStudents = 0
     for (let key of _.keys(enrollments)) {
       let count = enrollments[key]
       if (key === 'TAs') {
@@ -231,7 +240,7 @@ mongo.connect(config.secrets.mongo).then(async client => {
         newEnrollments.activeStudents.lecture[key] = count
         totalStudents += count
       } else {
-        console.error(`Unprocessed key ${ key }`)
+        console.error(`Unprocessed key ${key}`)
       }
       newEnrollments.activeStudents.total = totalStudents
       newEnrollments.staff.total = totalStaff
