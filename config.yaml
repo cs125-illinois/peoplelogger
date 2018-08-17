@@ -41,7 +41,7 @@ people:
   endLoggingDaysAfter: 30
 databaseName: cs125
 mailServer: 192.17.96.8
-discourse: https://cs125-forum.cs.illinois.edu
+discourseURL: https://cs125-forum.cs.illinois.edu
 thumbnail: 200.0
 labPrefix: AY
 lecturePrefix: AL

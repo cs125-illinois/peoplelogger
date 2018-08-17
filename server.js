@@ -947,57 +947,63 @@ async function people (config) {
   officeHourStaff = _.uniq(officeHourStaff)
 }
 
+async function callDiscourseAPI (config, request) {
+  let discourseClient = requestJSON.createClient(config.discourseURL)
+
+  let { verb, path, query, body } = request
+  query = query !== undefined ? query : {}
+  query = {
+    api_username: config.secrets.discourse.username,
+    api_key: config.secrets.discourse.key,
+    ...query
+  }
+  path += '?' + queryString.stringify(query)
+  log.debug(path)
+
+  for (let retry = 0; retry < 15; retry++) {
+    if (verb === 'get') {
+      var result = await discourseClient.get(path)
+    } else if (verb === 'put' || verb === 'post') {
+      var result = await discourseClient[verb](path, body)
+    } else if (verb === 'delete') {
+      discourse.headers['X-Requested-With'] = 'XMLHTTPRequest'
+      var result = await discourseClient.delete(path)
+    }
+    if (result.res.statusCode === 429 || result.res.statusCode === 500) {
+      log.warn(`Sleeping for ${result.res.statusCode}`)
+      sleep.sleep(5)
+    } else {
+      break
+    }
+  }
+  expect(result.res.statusCode).to.equal(200)
+  return result.body
+}
 
 const passwordOptions = { minimumLength: 10, maximumLength: 12 }
 async function discourse (config) {
-  let existingPeople = _.pickBy(await getExistingPeople(), p => {
-    return p.instructor === false
-  })
-  expect(_.keys(existingPeople).length, 'Everyone left').to.be.at.least(1)
 
-  let moderators = _.pickBy(existingPeople, person => {
-    return person.role === 'TA' || person.role === 'volunteer' || person.role === 'developer'
-  })
-  let users = _.pickBy(existingPeople, person => {
-    return person.role === 'student'
-  })
-  existingPeople = _.extend(_.clone(moderators), users)
-
-  let discourse = requestJSON.createClient(config.discourse)
-  let callDiscourseAPI = async (verb, path, query, body) => {
-    if (query === null) {
-      query = {}
+  await callDiscourseAPI(config, {
+    verb: 'put',
+    path: `/admin/users/2/primary_group`,
+    body: {
+      primary_group_id: 41
     }
-    query = _.extend(_.clone(query), {
-      api_username: config.secrets.discourse.username,
-      api_key: config.secrets.discourse.key
-    })
-    path += '?' + queryString.stringify(query)
-    log.debug(path)
+  })
 
-    for (let retry = 0; retry < 15; retry++) {
-      if (verb === 'get') {
-        var result = await discourse.get(path)
-      } else if (verb === 'put' || verb === 'post') {
-        var result = await discourse[verb](path, body)
-      } else if (verb === 'delete') {
-        discourse.headers['X-Requested-With'] = 'XMLHTTPRequest'
-        var result = await discourse.delete(path)
-      }
-      if (result.res.statusCode === 429 || result.res.statusCode === 500) {
-        log.warn(`Sleeping for ${result.res.statusCode}`)
-        discourse = requestJSON.createClient(config.discourse)
-        sleep.sleep(5)
-      } else {
-        break
-      }
+  return
+
+  await callDiscourseAPI(config, {
+    verb: 'put',
+    path: 'admin/site_settings/enable_local_logins',
+    body: {
+      enable_local_logins: true
     }
-    expect(result.res.statusCode).to.equal(200)
-    return result.body
-  }
+  })
+
 
   await callDiscourseAPI('put', 'admin/site_settings/enable_local_logins', null, {
-    enable_local_logins: true
+    enable_local_logins: false
   })
 
   let getAllUsers = async () => {
@@ -1192,7 +1198,7 @@ async function best (config) {
 }
 
 let callTable = {
-  reset, state, staff, students, enrollment, mailman
+  reset, state, staff, students, enrollment, mailman, discourse
 }
 
 let argv = require('minimist')(process.argv.slice(2))
