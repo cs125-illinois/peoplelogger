@@ -38,7 +38,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     $or: [
       { semester: { $exists: false } },
       { semester: 'Spring2018' }
-    ]}).toArray()
+    ]}).sort({ 'state.counter': 1 }).toArray()
 
   let firstCounter, lastCounter
   for (let counter of counters) {
