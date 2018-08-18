@@ -46,7 +46,6 @@ const people = require('./lib/people')
 const enrollment = require('./lib/enrollment')
 const mailman = require('./lib/mailman')
 const discourse = require('./lib/discourse')
-const gravatar = require('./lib/gravatar')
 
 let callTable = {
   reset: reset.reset,
@@ -57,8 +56,7 @@ let callTable = {
   mailman: mailman.mailman,
   updateDiscourseUsers: discourse.update,
   updateDiscourseGravatars: discourse.gravatars,
-  discourse: discourse.discourse,
-  gravatar: gravatar.gravatar
+  discourse: discourse.discourse
 }
 
 let argv = require('minimist')(process.argv.slice(2))
@@ -103,8 +101,6 @@ let queue = asyncLib.queue((unused, callback) => {
     return people.students(config)
   }).then(() => {
     return enrollment.enrollment(config)
-  }).then(() => {
-    return gravatar.gravatar(config)
   }).then(() => {
     return mailman.mailman(config)
   }).then(() => {
