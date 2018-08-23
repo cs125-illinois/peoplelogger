@@ -113,15 +113,11 @@ let queue = asyncLib.queue((unused, callback) => {
     if (config.client) {
       config.client.close()
     }
-  })
-  /*
-  }).then(() => {
-    best(config)
+    callback()
   }).catch(err => {
-    log.fatal(err)
+    log.fatal(`Run failed: ${ err }. Will retry later.`)
+    callback()
   })
-  */
-  callback()
 }, 1)
 
 if (argv._.length === 0 && argv.oneshot) {

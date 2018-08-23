@@ -1,6 +1,6 @@
 # -*- python -*-
 # -*- coding: utf-8 -*-
-## "emp-spring2018" mailing list configuration settings
+## "emp" mailing list configuration settings
 ## captured on Wed Aug 15 14:48:16 2018
 
 ## General options
@@ -691,7 +691,7 @@ digest_volume_frequency = 1
 # This section allows you to configure subscription and membership
 # exposure policy.  You can also control whether this list is public or
 # not.  See also the <a
-# href="https://cs125.cs.illinois.edu/mailman/admin/emp-spring2018/archive">Archival
+# href="https://cs125.cs.illinois.edu/mailman/admin/emp/archive">Archival
 # Options</a> section for separate archive-related privacy settings.
 
 # Advertise this list when people ask what lists are on this machine?
