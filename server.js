@@ -52,6 +52,7 @@ let callTable = {
   state: state.state,
   staff: people.staff,
   students: people.students,
+  permissions: people.permissions,
   enrollment: enrollment.enrollment,
   mailman: mailman.mailman,
   updateDiscourseUsers: discourse.update,
