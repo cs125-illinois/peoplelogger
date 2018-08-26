@@ -53,6 +53,7 @@ let callTable = {
   staff: people.staff,
   students: people.students,
   enrollment: enrollment.enrollment,
+  activeSections: state.activeSections,
   mailman: mailman.mailman,
   updateDiscourseUsers: discourse.update,
   updateDiscourseGravatars: discourse.gravatars,
@@ -101,6 +102,8 @@ let queue = asyncLib.queue((unused, callback) => {
     return people.students(config)
   }).then(() => {
     return enrollment.enrollment(config)
+  }).then(() => {
+    return state.activeSections(config)
   }).then(() => {
     return mailman.mailman(config)
   }).then(() => {
