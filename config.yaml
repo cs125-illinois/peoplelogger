@@ -13,6 +13,7 @@ semesters:
       CAs: '1t41oad983tCsBDxb_K6YWyEBQ7AZrdSmziLN-HJRclc'
       staffInfo: '1dd34sJ2vGWdxz1U6h30vMowc95eNIhW3yhdOrQhfa04'
       labs: '1vbwL5-uEySqJuGHwK3-Q--J3jh4GFEjuVjJk3jcWDPQ'
+      officeHours: '1FMZWzTQb--ydRtICZYoc-v5iAwcXLqLyegWsStbuVL0'
     courses: 'https://courses.illinois.edu/search/schedule/2018/fall/CS/125?sess='
     instructors:
       - name: Geoffrey Challen
@@ -54,6 +55,7 @@ people:
   startLoggingDaysBefore: 60
   endLoggingDaysAfter: 30
   CAActiveGracePeriodDays: 14
+  officeHourGracePeriodDays: 14
 databaseName: cs125
 mailServer: 192.17.96.8
 discourseURL: https://cs125-forum.cs.illinois.edu

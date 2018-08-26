@@ -51,6 +51,7 @@ let callTable = {
   reset: reset.reset,
   state: state.state,
   staff: people.staff,
+  officeHours: people.addOfficeHours,
   students: people.students,
   enrollment: enrollment.enrollment,
   activeSections: state.activeSections,
