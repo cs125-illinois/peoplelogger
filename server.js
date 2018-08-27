@@ -155,7 +155,7 @@ if (argv._.length === 0 && argv.oneshot) {
   })
 } else {
   let CronJob = require('cron').CronJob
-  let job = new CronJob('0 0 */2 * * *', async () => { // eslint-disable-line no-unused-vars
+  let job = new CronJob('* * */2 * * *', async () => { // eslint-disable-line no-unused-vars
     queue.push({})
   }, null, true, 'America/Chicago')
   queue.push({})
