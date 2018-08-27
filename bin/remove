@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+
+'use strict'
+
+const _ = require('lodash')
+const jsYAML = require('js-yaml')
+const tmp = require('tmp')
+const npmPath = require('npm-path')
+const childProcess = require('child_process')
+const fs = require('fs')
+
+let argv = require('minimist')(process.argv.slice(2))
+let config = _.extend(
+  jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
+  jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
+  argv
+)
+
+npmPath.setSync()
+
+let configFile = tmp.fileSync()
+fs.writeFileSync(configFile.name, JSON.stringify({
+  subject: 'CS',
+  semester: 'Fall 2018',
+  number: '199',
+  section: '196',
+  netIDs: [ 'challen', 'liiamb2' ],
+  secrets: config.secrets
+}))
+const command = `casperjs lib/remove-my.cs.illinois.edu ${configFile.name} --verbose`
+const options = {
+  maxBuffer: 1024 * 1024 * 1024,
+  timeout: 10 * 60 * 1000,
+  stdio: [0, 1, 2]
+}
+try {
+  childProcess.execSync(command, options)
+  fs.unlinkSync(configFile.name)
+} catch (err) {
+  console.error(err)
+}
+
+// vim: ts=2:sw=2:et:ft=javascript

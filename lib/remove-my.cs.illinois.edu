@@ -1,0 +1,149 @@
+/* global $, patchRequire, XMLHttpRequest, btoa */
+
+'use strict'
+
+var require = patchRequire(require) // eslint-disable-line no-use-before-define
+var _ = require('lodash')
+
+var casper = require('casper').create({
+  logLevel: 'debug',
+  viewportSize: {
+    width: 1280, height: 800
+  }
+})
+
+var fs = require('fs')
+var utils = require('utils')
+
+// require('assert') doesn't seem to work in CasperJS
+function assert (condition, message) {
+  if (!condition) {
+    console.error(message)
+  }
+}
+
+// my.cs.illinois.edu can throw 500 errors when handling certain inputs
+function checkStatus (currentPage) {
+  assert(currentPage.currentHTTPStatus === 200)
+}
+
+try {
+  var config = {}
+  try {
+    config = JSON.parse(fs.read(casper.cli.args[0]))
+  } catch (err) {
+    console.error(err)
+  }
+  var debug = casper.verbose = config.debugGet
+} catch (err) {
+  console.error(err)
+}
+
+if (debug) {
+  console.log(JSON.stringify(options, null, 2))
+}
+
+casper.start('https://my.cs.illinois.edu/index.asp', function waitForLoginForm () {
+  checkStatus(this)
+  this.waitForSelector('form[name="loginform"]')
+})
+casper.then(function fillLogin () {
+  checkStatus(this)
+  this.fill('#loginform', {
+    netid: config.secrets.students.username,
+    password: config.secrets.students.password
+  })
+})
+casper.then(function submitLogin () {
+  this.click('#action')
+})
+casper.then(function waitForLoginFill () {
+  checkStatus(this)
+  this.waitForSelector('#clsadm-content')
+})
+
+casper.thenOpen(utils.format('https://my.cs.illinois.edu/classtools/viewroster.asp?subj=%s&num=%s&sec=%s', config.subject, config.number, config.section))
+casper.then(function waitForCheckboxes () {
+  checkStatus(this)
+  this.waitForSelector('form[action="/classtools/viewroster.asp"]')
+})
+
+casper.then(function checkBox () {
+  this.page.injectJs('jquery/jquery-3.2.1.min.js')
+  var clicked = this.evaluate(function (semester, section) {
+    var semesterHeader = $(":contains('" + semester + "')")
+      .filter(function () {
+        return $(this).children().length === 0
+      })
+    var semesterHeaderType = $(semesterHeader).get(0).tagName
+    var clicked = 0
+    $(semesterHeader).nextAll().each(function (unused, element) {
+      if (section === $(element).text().trim()) {
+        $(element).prev('input').first().prop('checked', true)
+        clicked++
+      } else if ($(element).get(0).tagName === semesterHeaderType) {
+        return false
+      }
+    })
+    return clicked
+  }, config.semester, config.section.toString())
+  assert(clicked === 1, 'no section clicked')
+})
+casper.then(function submitCheckbox (section) {
+  this.click('input[value="View Roster"]')
+})
+casper.then(function waitForRoster () {
+  checkStatus(this)
+  this.waitForSelector('footer', null, null, 180000)
+  casper.capture('before.png')
+})
+casper.each(config.netIDs, function removeFromCourse (self, netID) {
+  var removeID
+  casper.then(function findPerson() {
+    this.page.injectJs('jquery/jquery-3.2.1.min.js')
+    removeID = this.evaluate(function (netID) {
+      var toReturn
+      $('table tr').each(function () {
+        var found = false
+        $(this).find('td').each(function () {
+          if ($(this).text().trim() === netID) {
+            found = true
+          }
+          if (found) {
+            $(this).find('div').each(function () {
+              if ($(this).attr('id').startsWith('rosteraction')) {
+                toReturn = $(this).find('a').first().attr('onclick')
+              }
+            })
+          }
+        })
+      })
+      eval('var t = ' + /.*({.*?})/.exec(toReturn)[1])
+      $.ajax('/mods/roster_ajax.asp', {
+        type: 'post',
+        async: false,
+        data: {
+          term: t.term,
+          crn: t.crn,
+          edw_pers_id: t.edw_pers_id,
+          action: 'delete'
+        }
+      })
+      $.ajax('/mods/roster_ajax.asp', {
+        type: 'post',
+        async: false,
+        data: {
+          term: t.term,
+          crn: t.crn,
+          edw_pers_id: t.edw_pers_id,
+          action: 'delete_confirm'
+        }
+      })
+      return t
+    }, netID)
+  })
+})
+
+casper.run()
+
+// vim: et:ts=2:sw=2:ft=javascript
