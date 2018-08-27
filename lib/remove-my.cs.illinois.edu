@@ -95,7 +95,6 @@ casper.then(function submitCheckbox (section) {
 casper.then(function waitForRoster () {
   checkStatus(this)
   this.waitForSelector('footer', null, null, 180000)
-  casper.capture('before.png')
 })
 casper.each(config.netIDs, function removeFromCourse (self, netID) {
   var removeID

@@ -52,10 +52,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
   fs.writeFileSync(configFile.name, JSON.stringify(addConfig))
 
   let addCommand = `casperjs lib/add-my.cs.illinois.edu ${configFile.name}`
-  var options = {
-    maxBuffer: 1024 * 1024 * 1024,
-    timeout: 10 * 60 * 1000
-  }
+  let options = { maxBuffer: 1024 * 1024 * 1024, timeout: 10 * 60 * 1000 }
 
   try {
     childProcess.execSync(addCommand, options)
@@ -74,10 +71,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
   fs.writeFileSync(configFile.name, JSON.stringify(getConfig))
 
   let getCommand = `casperjs lib/get-my.cs.illinois.edu ${configFile.name}`
-  var options = {
-    maxBuffer: 1024 * 1024 * 1024,
-    timeout: 10 * 60 * 1000
-  }
+  options = { maxBuffer: 1024 * 1024 * 1024, timeout: 10 * 60 * 1000 }
 
   try {
     var currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
@@ -89,7 +83,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
 
   quizGrades = _.keyBy(quizGrades, 'email')
   expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
-  console.log("First Name,LastName,UIN,NetID,Email,Score,Passed,CS,Major")
+  console.log("First Name,Last Name,UIN,NetID,Email,Score,Passed,CS,Major")
   _.each(currentPeople, person => {
     let name = person['Name'].split(',')
     let email = `${ person['Net ID'] }@illinois.edu`
@@ -100,29 +94,23 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     console.log(`${ name[1].trim() },${ name[0].trim() },${ person['UIN'] },${ person['Net ID'] },${ email },${ score },${ score >= 60 ? "x" : "" },${ CS ? "x" : "" },${ major }`)
   })
 
+  fs.writeFileSync(configFile.name, JSON.stringify({
+    subject: 'CS',
+    semester: 'Fall 2018',
+    number: '199',
+    section: '196',
+    netIDs,
+    secrets: config.secrets
+  }))
+  const command = `casperjs lib/remove-my.cs.illinois.edu ${configFile.name}`
+  options = { maxBuffer: 1024 * 1024 * 1024, timeout: 10 * 60 * 1000 }
+  try {
+    childProcess.execSync(command, options)
+    fs.unlinkSync(configFile.name)
+  } catch (err) {
+    console.error(err)
+  }
+
 })
-/*
-let configFile = tmp.fileSync()
-fs.writeFileSync(configFile.name, JSON.stringify({
-  subject: 'CS',
-  semester: 'Fall 2018',
-  number: '199',
-  section: '196',
-  netIDs: [ 'challen', 'liiamb2' ],
-  secrets: config.secrets
-}))
-const command = `casperjs lib/remove-my.cs.illinois.edu ${configFile.name} --verbose`
-const options = {
-  maxBuffer: 1024 * 1024 * 1024,
-  timeout: 10 * 60 * 1000,
-  stdio: [0, 1, 2]
-}
-try {
-  childProcess.execSync(command, options)
-  fs.unlinkSync(configFile.name)
-} catch (err) {
-  console.error(err)
-}
-*/
 
 // vim: ts=2:sw=2:et:ft=javascript
