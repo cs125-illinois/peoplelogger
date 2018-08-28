@@ -19,7 +19,6 @@ let config = _.extend(
 npmPath.setSync()
 
 let configFile = tmp.fileSync()
-console.log(argv._[0])
 fs.writeFileSync(configFile.name, JSON.stringify({
   page: argv._[0],
   secrets: config.secrets
@@ -27,14 +26,16 @@ fs.writeFileSync(configFile.name, JSON.stringify({
 const command = `casperjs lib/get-cbtf.engr.illinois.edu ${configFile.name}`
 const options = {
   maxBuffer: 1024 * 1024 * 1024,
-  timeout: 10 * 60 * 1000,
-  stdio: [0, 1, 2]
+  timeout: 10 * 60 * 1000
 }
+let output
 try {
-  childProcess.execSync(command, options)
+  output = childProcess.execSync(command, options)
   fs.unlinkSync(configFile.name)
 } catch (err) {
   console.error(err)
+  process.exit(-1)
 }
+console.log(output.toString())
 
 // vim: ts=2:sw=2:et:ft=javascript
