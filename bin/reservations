@@ -8,6 +8,8 @@ const tmp = require('tmp')
 const npmPath = require('npm-path')
 const childProcess = require('child_process')
 const fs = require('fs')
+const cheerio = require('cheerio')
+const moment = require('moment')
 
 let argv = require('minimist')(process.argv.slice(2))
 let config = _.extend(
@@ -36,6 +38,33 @@ try {
   console.error(err)
   process.exit(-1)
 }
-console.log(output.toString())
+const $ = cheerio.load(output)
+console.log(`Name,Email,Reservation Date,Reservation Time`)
+$('table.table-list-search tr').each(function () {
+  let name
+  let email
+  let date
+  $(this).find('td').each(function () {
+    const text = $(this).text().trim()
+    if (text === "") {
+      return
+    }
+    if (!name) {
+      name = text
+      return
+    }
+    if (!email) {
+      email = text
+      return
+    }
+    if (!date) {
+      date = moment(`${ text } 2018`, 'ddd, MMM D, h:mm a YYYY')
+      return
+    }
+  })
+  if (name) {
+    console.log(`${ name },${ email },${ date.format('MM/DD/YYYY') },${ date.format('HH:mm') }`)
+  }
+})
 
 // vim: ts=2:sw=2:et:ft=javascript
