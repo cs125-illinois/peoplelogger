@@ -1,0 +1,65 @@
+/* global $, patchRequire, XMLHttpRequest, btoa */
+
+'use strict'
+
+var require = patchRequire(require) // eslint-disable-line no-use-before-define
+var _ = require('lodash')
+
+var casper = require('casper').create({
+  logLevel: 'debug',
+  viewportSize: {
+    width: 1280, height: 800
+  }
+})
+
+var fs = require('fs')
+var utils = require('utils')
+
+// require('assert') doesn't seem to work in CasperJS
+function assert (condition, message) {
+  if (!condition) {
+    console.error(message)
+  }
+}
+
+// my.cs.illinois.edu can throw 500 errors when handling certain inputs
+function checkStatus (currentPage) {
+  assert(currentPage.currentHTTPStatus === 200)
+}
+
+try {
+  var config = {}
+  try {
+    config = JSON.parse(fs.read(casper.cli.args[0]))
+  } catch (err) {
+    console.log(err)
+  }
+  var page = config.page
+  var debug = casper.verbose
+} catch (err) {
+  console.error(err)
+}
+
+casper.start(page, function waitForLoginForm () {
+  checkStatus(this)
+  this.waitForSelector('div#shib_login')
+})
+casper.then(function fillLogin () {
+  this.fill('form', {
+    j_username: config.secrets.students.username,
+    j_password: config.secrets.students.password
+  })
+})
+casper.then(function submitLogin () {
+  this.click('#submit_button input')
+})
+casper.then(function waitForLoginFill () {
+  checkStatus(this)
+  this.waitForSelector('table.table-list-search')
+})
+casper.then(function dumpPage () {
+  console.log(this.getHTML())
+})
+casper.run()
+
+// vim: et:ts=2:sw=2:ft=javascript

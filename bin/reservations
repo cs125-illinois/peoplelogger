@@ -1,0 +1,70 @@
+#!/usr/bin/env node
+
+'use strict'
+
+const _ = require('lodash')
+const jsYAML = require('js-yaml')
+const tmp = require('tmp')
+const npmPath = require('npm-path')
+const childProcess = require('child_process')
+const fs = require('fs')
+const cheerio = require('cheerio')
+const moment = require('moment')
+
+let argv = require('minimist')(process.argv.slice(2))
+let config = _.extend(
+  jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
+  jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
+  argv
+)
+
+npmPath.setSync()
+
+let configFile = tmp.fileSync()
+fs.writeFileSync(configFile.name, JSON.stringify({
+  page: argv._[0],
+  secrets: config.secrets
+}))
+const command = `casperjs lib/get-cbtf.engr.illinois.edu ${configFile.name}`
+const options = {
+  maxBuffer: 1024 * 1024 * 1024,
+  timeout: 10 * 60 * 1000
+}
+let output
+try {
+  output = childProcess.execSync(command, options)
+  fs.unlinkSync(configFile.name)
+} catch (err) {
+  console.error(err)
+  process.exit(-1)
+}
+const $ = cheerio.load(output)
+console.log(`Name,Email,Reservation Date,Reservation Time`)
+$('table.table-list-search tr').each(function () {
+  let name
+  let email
+  let date
+  $(this).find('td').each(function () {
+    const text = $(this).text().trim()
+    if (text === "") {
+      return
+    }
+    if (!name) {
+      name = text
+      return
+    }
+    if (!email) {
+      email = text
+      return
+    }
+    if (!date) {
+      date = moment(`${ text } 2018`, 'ddd, MMM D, h:mm a YYYY')
+      return
+    }
+  })
+  if (name) {
+    console.log(`${ name },${ email },${ date.format('MM/DD/YYYY') },${ date.format('HH:mm') }`)
+  }
+})
+
+// vim: ts=2:sw=2:et:ft=javascript
