@@ -54,6 +54,7 @@ let callTable = {
   staff: people.staff,
   officeHours: people.addOfficeHours,
   students: people.students,
+  allowed: people.addAllowed,
   enrollment: enrollment.enrollment,
   activeSections: state.activeSections,
   mailman: mailman.mailman,
@@ -105,6 +106,8 @@ let queue = asyncLib.queue((unused, callback) => {
     return people.students(config)
   }).then(() => {
     return enrollment.enrollment(config)
+  }).then(() => {
+    return schedule.schedule(config)
   }).then(() => {
     return state.activeSections(config)
   }).then(() => {
