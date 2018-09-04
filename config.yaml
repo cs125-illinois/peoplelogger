@@ -4,7 +4,7 @@ semesters:
   Fall2018:
     name: Fall 2018
     start: "08-27-2018"
-    end: "12-20-2018"
+    end: "12-12-2018"
     staffCourse:
       number: 199
       section: 125
@@ -30,7 +30,6 @@ semesters:
           start: 05:00PM
           end: 06:50PM
         location: 2310 Everitt Elec & Comp Engr Lab
-        active: true
   Spring2018:
     start: "01-16-2018"
     end: "05-11-2018"
