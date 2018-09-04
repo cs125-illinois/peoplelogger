@@ -46,6 +46,7 @@ const people = require('./lib/people')
 const enrollment = require('./lib/enrollment')
 const mailman = require('./lib/mailman')
 const discourse = require('./lib/discourse')
+const schedule = require('./lib/schedule')
 
 let callTable = {
   reset: reset.reset,
@@ -58,7 +59,8 @@ let callTable = {
   mailman: mailman.mailman,
   updateDiscourseUsers: discourse.update,
   updateDiscourseGravatars: discourse.gravatars,
-  discourse: discourse.discourse
+  discourse: discourse.discourse,
+  schedule: schedule.schedule
 }
 
 let argv = require('minimist')(process.argv.slice(2))
