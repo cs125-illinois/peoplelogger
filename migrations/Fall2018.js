@@ -167,7 +167,8 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
           type: person.photo.type,
           size: person.photo.size
         },
-        thumbnail: person.thumbnail
+        thumbnail: person.thumbnail,
+        active: true
       })
       existingPhotos[imageHash] = {
         email: person.email
