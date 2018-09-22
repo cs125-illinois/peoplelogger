@@ -129,9 +129,13 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     const email = response[config.email].trim()
     expect(email).to.be.ok()
     const timestamp = moment(`1900-01-01 00:00:00`).add((response[config.timestamp] - 2) * 24, 'hours')
-    debug(result)
+    const survey = {
+      email,
+      timestamp: timestamp.toDate(),
+      questions: result
+    }
+    debug(survey)
   }
-  console.log(seen)
   _.each(config.questions, (info, name) => {
     if (!(name in seen)) {
       console.log(`Didn't see survey question ${ name }`)
