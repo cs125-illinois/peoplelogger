@@ -7,6 +7,7 @@ const jsYAML = require('js-yaml')
 const fs = require('fs')
 const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
 const debug = require('debug')('survey')
+const moment = require('moment-timezone')
 
 const chai = require('chai')
 const expect = chai.expect
@@ -113,6 +114,9 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
         })
       }
     })
+    const email = response[config.email].trim()
+    expect(email).to.be.ok()
+    const timestamp = moment(`1900-01-01 00:00:00`).add((response[config.timestamp] - 2) * 24, 'hours')
     debug(result)
   }
   _.each(config.questions, (info, name) => {
@@ -127,7 +131,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
         }
       })
       _.each(seen[name].missed, (count, option) => {
-        if (count > config.surveyMissedThreshold) {
+        if (count > config.missedThreshold) {
           console.log(`Missed popular option ${ option } for survey question ${ name }`)
         }
       })

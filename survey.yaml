@@ -1,5 +1,8 @@
 semester: Fall2018
 sheet: '1Jm-m7Ez5RwbYLhPp2Du0K1-VmLlEo48ociLjxaoN9go'
+timestamp: "Timestamp"
+timezone: "America/Chicago"
+email: "Email Address"
 questions:
   hasLaptop:
     question:
@@ -36,8 +39,57 @@ questions:
       "CS105": "CS 105: Introduction to Computing for Non-Technical Majors"
       "ECE120": "ECE 120: Introduction to Computing"
       "None": "None of the above"
+  languages:
+    question:
+      - "Which, if any, of the following programming languages are you familiar with?"
+    type: "multi"
+    options:
+      "Java": "Java"
+      "Python": "Python"
+      "JavaScript": "JavaScript"
+      "C++": "C++"
+      "C": "C"
+      "PHP": "PHP"
+      "C#": "C#"
+      "MatLab": "MatLab"
+      "Swift": "Swift"
+      "R": "R"
+      "Ruby": "Ruby"
+      "none": "I've never programmed before!"
+  timeCommitment:
+    question:
+      - "How much time do you expect to devote each week to CS 125 outside of class?"
+    type: "single"
+    options:
+      "0-1": "0–1 hours"
+      "1-5": "1–5 hours"
+      "5-10": "5–10 hours"
+      "10-": "10+ hours"
+  interest:
+    question:
+      - "How many other computer science courses do you expect to take after CS 125?"
+    type: "single"
+    options:
+      "0": "None!"
+      "1-2": "1 or 2"
+      "3-5": "3 to 5"
+      "5-": "As many as I can!"
+  degree:
+    question:
+      - "Which of the following are you pursuing?"
+    type: "multi"
+    options:
+      "CS+X": "Computer Science degree outside engineering (including CS+X)"
+      "minor": "Computer Science minor"
+      "transfer": "Transfer into Computer Science"
+      "CSEng": "Computer Science degree within engineering (Computer Science Engineering)"
+      "none": "None of the above"
   goals:
     question:
       - "Overall what are you hoping to get out of taking CS 125?"
     type: "free"
+  data:
+    question:
+      - "Can we use data collected about you in CS 125 in externally-published research studies?"
+    type: "truefalse"
 missedThreshold: 10
