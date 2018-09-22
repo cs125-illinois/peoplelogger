@@ -1,0 +1,140 @@
+#!/usr/bin/env node
+
+'use strict'
+
+const _ = require('lodash')
+const jsYAML = require('js-yaml')
+const fs = require('fs')
+const googleSpreadsheetToJSON = require('google-spreadsheet-to-json')
+const debug = require('debug')('survey')
+
+const chai = require('chai')
+const expect = chai.expect
+chai.use(require('dirty-chai'))
+const mongo = require('mongodb').MongoClient
+
+let argv = require('minimist')(process.argv.slice(2))
+let config = _.extend(
+  jsYAML.safeLoad(fs.readFileSync('survey.yaml', 'utf8')),
+  jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
+  argv
+)
+
+mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
+  const sheets = await googleSpreadsheetToJSON({
+    spreadsheetId: config.sheet,
+    credentials: config.secrets.google,
+    propertyMode: 'none',
+    worksheet: 'Form Responses 1'
+  })
+  let seen = {}
+  for (let response of sheets) {
+    let result = {}
+    _.each(config.questions, (info, name) => {
+
+      expect(info.question).to.be.a('array')
+      let prompt = _.filter(_.keys(response), possiblePrompt => {
+        return info.question.indexOf(possiblePrompt) !== -1
+      })
+      expect(prompt.length).to.be.at.most(1)
+      if (prompt.length === 0) {
+        return
+      }
+      if (!(name in seen)) {
+        seen[name] = { chosen: {}, missed: {}}
+      }
+      prompt = prompt[0]
+      result[name] = { prompt, type: info.type }
+
+      let answer = response[prompt]
+      switch (typeof(answer)) {
+        case "string":
+          answer = answer.trim()
+          break
+      }
+
+      if (info.type === 'free') {
+        result[name].answer = answer
+        return
+      } else if (info.type === 'truefalse') {
+        switch (answer) {
+          case "Yes":
+            result[name].answer = true
+            break
+          case "No":
+            result[name].answer = false
+            break
+        }
+        expect(result[name]).to.not.be.undefined()
+        return
+      } else if (info.type === 'range') {
+        answer = parseInt(answer)
+        result[name].answer = answer
+        return
+      } else if (info.type === 'single' || info.type === 'multi') {
+        expect(info.options).to.be.ok()
+        let allOptions = _.map(answer.split(','), a => {
+          return a.trim()
+        })
+        if (allOptions.length === 0) {
+          return
+        }
+        let chosenOptions
+        if (Array.isArray(info.options)) {
+          chosenOptions = _(info.options).keyBy(value => {
+            return value
+          }).pickBy(value => {
+            return allOptions.indexOf(value) !== -1
+          }).value()
+        } else if (typeof(info.options) === 'object') {
+          chosenOptions = _.pickBy(info.options, value => {
+            return allOptions.indexOf(value) !== -1
+          })
+        }
+        let missedOptions = _.difference(allOptions, _.values(chosenOptions))
+        if (missedOptions.length > 1) {
+          debug(`Problem answer: ${ missedOptions.join(',') }`)
+        } else if (missedOptions.length === 1) {
+          expect(chosenOptions).to.not.have.property('other')
+          chosenOptions['other'] = missedOptions[0]
+        }
+        result[name].answer = chosenOptions
+        _.each(missedOptions, missed => {
+          if (!(missed in seen[name].missed)) {
+            seen[name].missed[missed] = 0
+          }
+          seen[name].missed[missed]++
+        })
+        _.each(chosenOptions, chosen => {
+          if (!(chosen in seen[name].chosen)) {
+            seen[name].chosen[chosen] = 0
+          }
+          seen[name].chosen[chosen]++
+        })
+      }
+    })
+    debug(result)
+  }
+  _.each(config.questions, (info, name) => {
+    if (!(name in seen)) {
+      console.log(`Didn't see survey question ${ name }`)
+      return
+    }
+    if (info.options) {
+      _.each(info.options, option => {
+        if (!(seen[name].chosen[option])) {
+          console.log(`Didn't see option ${ option } for survey question ${ name }`)
+        }
+      })
+      _.each(seen[name].missed, (count, option) => {
+        if (count > config.surveyMissedThreshold) {
+          console.log(`Missed popular option ${ option } for survey question ${ name }`)
+        }
+      })
+    }
+  })
+
+  client.close()
+})
+
+// vim: ts=2:sw=2:et:ft=javascript

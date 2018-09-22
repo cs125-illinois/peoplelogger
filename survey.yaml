@@ -1,0 +1,43 @@
+semester: Fall2018
+sheet: '1Jm-m7Ez5RwbYLhPp2Du0K1-VmLlEo48ociLjxaoN9go'
+questions:
+  hasLaptop:
+    question:
+      - "Do you have a laptop?"
+    type: "truefalse"
+  laptopKind:
+    question:
+      - "What kind of laptop do you have?"
+    type: "single"
+    options:
+      - Mac
+      - Windows
+      - Linux
+  prior:
+    question:
+      - "Rate your current programming abilities."
+    type: "range"
+  highSchoolPreparation:
+    question:
+      - "Did you take CS in high school?"
+    type: "multi"
+    options:
+      "CS-A": "I took AP Computer Science A"
+      "CS-Principles": "I took AP Computer Science Principles"
+      "Java": "I took a programming class in Java"
+      "Python": "I took a programming class in Python"
+      "None": "I didn't take a programming course in high school"
+  collegePreparation:
+    question:
+      - "What CS courses have you taken previously at Illinois?"
+    type: "multi"
+    options:
+      "CS101": "CS 101: Introduction to Computing for Engineering and Science"
+      "CS105": "CS 105: Introduction to Computing for Non-Technical Majors"
+      "ECE120": "ECE 120: Introduction to Computing"
+      "None": "None of the above"
+  goals:
+    question:
+      - "Overall what are you hoping to get out of taking CS 125?"
+    type: "free"
+missedThreshold: 10
