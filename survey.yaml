@@ -56,6 +56,20 @@ questions:
       "R": "R"
       "Ruby": "Ruby"
       "none": "I've never programmed before!"
+  IDE:
+    question:
+      - "Have you used either of these development environments before?"
+    type: "multi"
+    options:
+      "Eclipse": "Eclipse"
+      "IntelliJ": "IntelliJ IDEA"
+      "BlueJ": "BlueJ"
+      "Netbeans": "Netbeans"
+      "none":
+        - "none"
+        - "None"
+        - "N/A"
+        - "no"
   timeCommitment:
     question:
       - "How much time do you expect to devote each week to CS 125 outside of class?"

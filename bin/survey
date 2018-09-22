@@ -88,9 +88,21 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
             return allOptions.indexOf(value) !== -1
           }).value()
         } else if (typeof(info.options) === 'object') {
-          chosenOptions = _.pickBy(info.options, value => {
+          chosenOptions = _(info.options).mapValues(value => {
+            if (Array.isArray(value)) {
+              let matches = _.intersection(allOptions, value)
+              expect(matches.length).to.be.at.most(1)
+              if (matches.length === 1) {
+                return matches[0]
+              } else {
+                return ""
+              }
+            } else {
+              return value
+            }
+          }).pickBy(value => {
             return allOptions.indexOf(value) !== -1
-          })
+          }).value()
         }
         let missedOptions = _.difference(allOptions, _.values(chosenOptions))
         if (missedOptions.length > 1) {
@@ -106,7 +118,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
           }
           seen[name].missed[missed]++
         })
-        _.each(chosenOptions, chosen => {
+        _.each(chosenOptions, (unused, chosen) => {
           if (!(chosen in seen[name].chosen)) {
             seen[name].chosen[chosen] = 0
           }
@@ -119,13 +131,15 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     const timestamp = moment(`1900-01-01 00:00:00`).add((response[config.timestamp] - 2) * 24, 'hours')
     debug(result)
   }
+  console.log(seen)
   _.each(config.questions, (info, name) => {
     if (!(name in seen)) {
       console.log(`Didn't see survey question ${ name }`)
       return
     }
     if (info.options) {
-      _.each(info.options, option => {
+      _.each(info.options, (value, ke) => {
+        const option = key || value
         if (!(seen[name].chosen[option])) {
           console.log(`Didn't see option ${ option } for survey question ${ name }`)
         }
