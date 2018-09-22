@@ -28,6 +28,7 @@ questions:
       "CS-A": "I took AP Computer Science A"
       "CS-Principles": "I took AP Computer Science Principles"
       "Java": "I took a programming class in Java"
+      "C++": "I took a programming class in C++"
       "Python": "I took a programming class in Python"
       "None": "I didn't take a programming course in high school"
   collegePreparation:
@@ -64,7 +65,9 @@ questions:
       "Eclipse": "Eclipse"
       "IntelliJ": "IntelliJ IDEA"
       "BlueJ": "BlueJ"
-      "Netbeans": "Netbeans"
+      "NetBeans":
+        - "Netbeans"
+        - "NetBeans"
       "none":
         - "none"
         - "None"

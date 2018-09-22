@@ -138,8 +138,8 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
       return
     }
     if (info.options) {
-      _.each(info.options, (value, ke) => {
-        const option = key || value
+      _.each(info.options, (value, key) => {
+        const option = Array.isArray(info.options) ? value : key
         if (!(seen[name].chosen[option])) {
           console.log(`Didn't see option ${ option } for survey question ${ name }`)
         }
