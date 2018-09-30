@@ -26,7 +26,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
   for (let semester of allSemesters) {
     let active = {}
     for (let change of _.sortBy(await changesCollection.find({
-      semester, $or: [ { type: 'joined' }, { type: 'left' } ]
+      semester, $or: [ { type: 'joined' }, { type: 'left' } ], ignore: { $ne: true }
     }).toArray(), c => {
       return c.state.counter
     })) {
@@ -50,7 +50,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
         } else {
           debug(`${ email } already left at ${ change.state.counter }`)
           if (!config.dry_run) {
-            await changesCollection.updateOne({
+            await changesCollection.updateMany({
               semester, email, 'state.counter': change.state.counter
             }, {
               $set: {
