@@ -55,6 +55,7 @@ let callTable = {
   officeHours: people.addOfficeHours,
   students: people.students,
   allowed: people.addAllowed,
+  survey: people.addSurvey,
   enrollment: enrollment.enrollment,
   activeSections: state.activeSections,
   mailman: mailman.mailman,
