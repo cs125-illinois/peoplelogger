@@ -1,0 +1,59 @@
+#!/usr/bin/env node
+
+'use strict'
+
+const _ = require('lodash')
+const jsYAML = require('js-yaml')
+const fs = require('fs')
+const debug = require('debug')('fixChanges')
+const moment = require('moment-timezone')
+
+const chai = require('chai')
+const expect = chai.expect
+chai.use(require('dirty-chai'))
+const mongo = require('mongodb').MongoClient
+
+let argv = require('minimist')(process.argv.slice(2))
+let config = _.extend(
+  jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
+  argv
+)
+
+mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
+  const changesCollection = client.db('cs125').collection('peopleChanges')
+  const allSemesters = await changesCollection.distinct('semester')
+
+  for (let semester of allSemesters) {
+    let active = {}
+    for (let change of _.sortBy(await changesCollection.find({
+      semester, $or: [ { type: 'joined' }, { type: 'left' } ]
+    }).toArray(), c => {
+      return c.state.counter
+    })) {
+      const { email, type } = change
+      if (type === 'joined') {
+        if (email in active) {
+          debug(`${ email } already active at ${ change.state.counter }`)
+          await changesCollection.deleteOne({
+            semester, email, 'state.counter': change.state.counter
+          })
+        } else {
+          active[email] = true
+        }
+      } else if (type === 'left') {
+        if (email in active) {
+          delete(active[email])
+        } else {
+          debug(`${ email } already left at ${ change.state.counter }`)
+          await changesCollection.deleteOne({
+            semester, email, 'state.counter': change.state.counter
+          })
+        }
+      }
+    }
+  }
+
+  client.close()
+})
+
+// vim: ts=2:sw=2:et:ft=javascript
