@@ -33,10 +33,14 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
       const { email, type } = change
       if (type === 'joined') {
         if (email in active) {
+          /*
           debug(`${ email } already active at ${ change.state.counter }`)
-          await changesCollection.deleteOne({
-            semester, email, 'state.counter': change.state.counter
-          })
+          if (!config.dry_run) {
+            await changesCollection.deleteOne({
+              semester, email, 'state.counter': change.state.counter
+            })
+          }
+          */
         } else {
           active[email] = true
         }
@@ -45,9 +49,15 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
           delete(active[email])
         } else {
           debug(`${ email } already left at ${ change.state.counter }`)
-          await changesCollection.deleteOne({
-            semester, email, 'state.counter': change.state.counter
-          })
+          if (!config.dry_run) {
+            await changesCollection.updateOne({
+              semester, email, 'state.counter': change.state.counter
+            }, {
+              $set: {
+                ignore: true
+              }
+            })
+          }
         }
       }
     }
