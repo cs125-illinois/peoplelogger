@@ -83,15 +83,17 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
 
   quizGrades = _.keyBy(quizGrades, 'email')
   expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
-  console.log("First Name,Last Name,UIN,NetID,Email,Score,Passed,CS,Major")
+  console.log("First Name,Last Name,UIN,NetID,Email,Score,Passed,CS,Major,College")
   _.each(currentPeople, person => {
     let name = person['Name'].split(',')
     let email = `${ person['Net ID'] }@illinois.edu`
-    expect(quizGrades).to.have.property(email)
+    if (!(email in quizGrades)) {
+      return
+    }
     let score = quizGrades[email].score
     let major = person['Major 1 Name']
     let CS = major.includes('Computer Science') || major.includes('Computer Sci')
-    console.log(`${ name[1].trim() },${ name[0].trim() },${ person['UIN'] },${ person['Net ID'] },${ email },${ score },${ score >= 60 ? "x" : "" },${ CS ? "x" : "" },${ major }`)
+    console.log(`${ name[1].trim() },${ name[0].trim() },${ person['UIN'] },${ person['Net ID'] },${ email },${ score },${ score >= 60 ? "x" : "" },${ CS ? "x" : "" },${ major },"${ person['College'] }"`)
   })
 
   fs.writeFileSync(configFile.name, JSON.stringify({
