@@ -106,8 +106,6 @@ let queue = asyncLib.queue((unused, callback) => {
   }).then(() => {
     return people.students(config)
   }).then(() => {
-    return people.addSurvey(config)
-  }).then(() => {
     return enrollment.enrollment(config)
   }).then(() => {
     return schedule.schedule(config)

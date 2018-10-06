@@ -50,12 +50,8 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
         } else {
           debug(`${ email } already left at ${ change.state.counter }`)
           if (!config.dry_run) {
-            await changesCollection.updateMany({
+            await changesCollection.deleteMany({
               semester, email, 'state.counter': change.state.counter
-            }, {
-              $set: {
-                ignore: true
-              }
             })
           }
         }
