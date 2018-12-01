@@ -43,19 +43,18 @@ if (debug) {
   console.log(JSON.stringify(options, null, 2))
 }
 
-casper.start('https://my.cs.illinois.edu/index.asp', function waitForLoginForm () {
+casper.start('https://my.cs.illinois.edu/shibboleth.asp', function waitForLoginForm () {
   checkStatus(this)
-  this.waitForSelector('form[name="loginform"]')
+  this.waitForSelector('#shib_login')
 })
 casper.then(function fillLogin () {
-  checkStatus(this)
-  this.fill('#loginform', {
-    netid: config.secrets.students.username,
-    password: config.secrets.students.password
+  this.fill('form', {
+    j_username: config.secrets.students.username,
+    j_password: config.secrets.students.password
   })
 })
 casper.then(function submitLogin () {
-  this.click('#action')
+  this.click('#submit_button input')
 })
 casper.then(function waitForLoginFill () {
   checkStatus(this)
