@@ -120,12 +120,19 @@ let queue = asyncLib.queue((unused, callback) => {
   }).then(() => {
     return discourse.gravatars(config)
   }).then(() => {
+    config.log.debug(`Done`)
     if (config.client) {
       config.client.close()
+    }
+    if (argv.oneshot) {
+      process.exit(0)
     }
     callback()
   }).catch(err => {
     log.fatal(`Run failed: ${err}. Will retry later.`)
+    if (argv.oneshot) {
+      process.exit(-1)
+    }
     callback()
   })
 }, 1)
