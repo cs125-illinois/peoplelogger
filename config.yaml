@@ -82,3 +82,5 @@ recordIgnoreKeys:
   - _id
   - state
   - sawOfficeHours
+ADIgnoreUsers:
+  - challen

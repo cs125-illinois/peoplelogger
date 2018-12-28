@@ -125,7 +125,7 @@ let queue = asyncLib.queue((unused, callback) => {
     }
     callback()
   }).catch(err => {
-    log.fatal(`Run failed: ${ err }. Will retry later.`)
+    log.fatal(`Run failed: ${err}. Will retry later.`)
     callback()
   })
 }, 1)

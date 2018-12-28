@@ -1,9 +1,18 @@
-semester: Fall2018
-sheet: '1Jm-m7Ez5RwbYLhPp2Du0K1-VmLlEo48ociLjxaoN9go'
+semester: Spring2019
+sheet: '1yc7VOTu6xIdvRiWOTT1PVgtMMCJiOe0jX9PqT8SBRcM'
 timestamp: "Timestamp"
 timezone: "America/Chicago"
 email: "Email Address"
 questions:
+  gender:
+    question:
+      - "What is your gender?"
+    type: "single"
+    options:
+      "Female": "F"
+      "Male": "M"
+      "Other": "Other"
+      "Prefer not to say": "None"
   hasLaptop:
     question:
       - "Do you have a laptop?"
