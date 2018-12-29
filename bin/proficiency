@@ -38,49 +38,11 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     return emailAddresses.parseOneAddress(email).local
   }).value()
 
+  console.log(netIDs)
+
   client.close()
 
-  let configFile = tmp.fileSync()
-  let addConfig = {
-    subject: 'CS',
-    semester: 'Fall 2018',
-    number: '199',
-    section: '196',
-    netIDs,
-    secrets: config.secrets
-  }
-  fs.writeFileSync(configFile.name, JSON.stringify(addConfig))
-
-  let addCommand = `casperjs lib/add-my.cs.illinois.edu ${configFile.name}`
-  let options = { maxBuffer: 1024 * 1024 * 1024, timeout: 10 * 60 * 1000 }
-
-  try {
-    childProcess.execSync(addCommand, options)
-    fs.unlinkSync(configFile.name)
-  } catch (err) {
-    config.log.warn(err)
-  }
-
-  let getConfig = {
-    subject: 'CS',
-    semester: 'Fall 2018',
-    number: '199',
-    sections: [ '196' ],
-    secrets: config.secrets
-  }
-  fs.writeFileSync(configFile.name, JSON.stringify(getConfig))
-
-  let getCommand = `casperjs lib/get-my.cs.illinois.edu ${configFile.name}`
-  options = { maxBuffer: 1024 * 1024 * 1024, timeout: 10 * 60 * 1000 }
-
-  try {
-    var currentPeople = JSON.parse(childProcess.execSync(getCommand, options).toString())
-    fs.unlinkSync(configFile.name)
-  } catch (err) {
-    // Throw to make sure that we don't run other tasks
-    throw err
-  }
-
+  /*
   quizGrades = _.keyBy(quizGrades, 'email')
   expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
   console.log("First Name,Last Name,UIN,NetID,Email,Score,Passed,CS,Major,College")
@@ -95,24 +57,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     let CS = major.includes('Computer Science') || major.includes('Computer Sci')
     console.log(`${ name[1].trim() },${ name[0].trim() },${ person['UIN'] },${ person['Net ID'] },${ email },${ score },${ score >= 60 ? "x" : "" },${ CS ? "x" : "" },${ major },"${ person['College'] }"`)
   })
-
-  fs.writeFileSync(configFile.name, JSON.stringify({
-    subject: 'CS',
-    semester: 'Fall 2018',
-    number: '199',
-    section: '196',
-    netIDs,
-    secrets: config.secrets
-  }))
-  const command = `casperjs lib/remove-my.cs.illinois.edu ${configFile.name}`
-  options = { maxBuffer: 1024 * 1024 * 1024, timeout: 10 * 60 * 1000 }
-  try {
-    childProcess.execSync(command, options)
-    fs.unlinkSync(configFile.name)
-  } catch (err) {
-    console.error(err)
-  }
-
+  */
 })
 
 // vim: ts=2:sw=2:et:ft=javascript
