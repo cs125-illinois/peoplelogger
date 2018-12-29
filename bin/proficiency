@@ -15,6 +15,7 @@ const chai = require('chai')
 const expect = chai.expect
 chai.use(require('dirty-chai'))
 const mongo = require('mongodb').MongoClient
+const people = require('../lib/people')
 
 let argv = require('minimist')(process.argv.slice(2))
 let config = _.extend(
@@ -25,6 +26,8 @@ let config = _.extend(
 
 npmPath.setSync()
 
+const ignore = [ 'mussulma@illinois.edu' ]
+
 mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
   let quizCollection = client.db('cs125').collection('quizGrades')
   let quizGrades = await quizCollection.find({
@@ -32,8 +35,10 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     course: 'proficiency',
     type: 'exam',
     latest: true,
-    detailed: true
+    detailed: true,
+    email: { $nin: ignore }
   }).toArray()
+  client.close()
 
   if (argv.after) {
     const afterDate = moment.tz(new Date(argv.after), config.timezone)
@@ -43,31 +48,21 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
   }
 
   expect(_.uniq(quizGrades, 'email').length).to.equal(quizGrades.length)
+  quizGrades = _.keyBy(quizGrades, 'email')
 
   const netIDs = _(quizGrades).map('email').map(email => {
     return emailAddresses.parseOneAddress(email).local
   }).value()
-
-  console.log(netIDs.length)
-
-  client.close()
-
-  /*
-  quizGrades = _.keyBy(quizGrades, 'email')
+  const currentPeople = await people.getPeopleFromAD(config, netIDs)
   expect(_.keys(currentPeople)).to.have.lengthOf.above(1)
+
   console.log("First Name,Last Name,UIN,NetID,Email,Score,Passed,CS,Major,College")
-  _.each(currentPeople, person => {
-    let name = person['Name'].split(',')
-    let email = `${ person['Net ID'] }@illinois.edu`
-    if (!(email in quizGrades)) {
-      return
-    }
-    let score = quizGrades[email].score
-    let major = person['Major 1 Name']
-    let CS = major.includes('Computer Science') || major.includes('Computer Sci')
-    console.log(`${ name[1].trim() },${ name[0].trim() },${ person['UIN'] },${ person['Net ID'] },${ email },${ score },${ score >= 60 ? "x" : "" },${ CS ? "x" : "" },${ major },"${ person['College'] }"`)
+  _.each(currentPeople, ({ name, email, college, major, ID }) => {
+    expect(quizGrades).to.have.property(email)
+    const score = quizGrades[email].score
+    let CS = major ? major.includes('Computer Science') || major.includes('Computer Sci') : '?'
+    console.log(`${ name.last },${ name.first },${ ID },${ email.split('@')[0] },${ email },${ score },${ score >= 60 ? "x" : "" },${ CS ? "x" : "" },${ major },"${ college }"`)
   })
-  */
 })
 
 // vim: ts=2:sw=2:et:ft=javascript
