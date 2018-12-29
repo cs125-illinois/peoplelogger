@@ -9,6 +9,7 @@ const npmPath = require('npm-path')
 const childProcess = require('child_process')
 const fs = require('fs')
 const emailAddresses = require('email-addresses')
+const moment = require('moment-timezone')
 
 const chai = require('chai')
 const expect = chai.expect
@@ -29,8 +30,17 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
   let quizGrades = await quizCollection.find({
     semester: 'Fall2018',
     course: 'proficiency',
-    type: 'exam'
+    type: 'exam',
+    latest: true,
+    detailed: true
   }).toArray()
+
+  if (argv.after) {
+    const afterDate = moment.tz(new Date(argv.after), config.timezone)
+    quizGrades = _.filter(quizGrades, grade => {
+      return moment(grade.received).isAfter(afterDate)
+    })
+  }
 
   expect(_.uniq(quizGrades, 'email').length).to.equal(quizGrades.length)
 
@@ -38,7 +48,7 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     return emailAddresses.parseOneAddress(email).local
   }).value()
 
-  console.log(netIDs)
+  console.log(netIDs.length)
 
   client.close()
 
