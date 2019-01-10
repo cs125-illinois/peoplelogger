@@ -15,6 +15,8 @@ semesters:
     instructors:
       - name: Geoffrey Challen
         email: challen@illinois.edu
+    manualSectionAssignments:
+      anjalim3@illinois.edu: [ 'EMP' ]
     extraSections:
       EMP:
         CRN: 63080
@@ -24,7 +26,7 @@ semesters:
         times:
           start: 05:00PM
           end: 06:50PM
-        location: TBD
+        location: 0216 Siebel Center for Comp Sci
   Fall2018:
     name: Fall 2018
     start: "08-27-2018"
