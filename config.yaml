@@ -12,9 +12,11 @@ semesters:
       staffInfo: '1F2POLKI--NqaRzdMnsUyNis8RWaLXvkv3B4GlwPra7E'
       labs: '1fSrfNbTMBEeIo_6rL5zycNDZ0kTvL0297hn42zIS_-Y'
       officeHours: '1djvVT2Uo_jpu9QWbyperbuE69x7HAZMAj2OtS_m6rd4'
+      provisional: '1YbJfgSiClcjCzBwf-57Ocz5kAZljLGxAZYchJlclqW8'
     instructors:
       - name: Geoffrey Challen
         email: challen@illinois.edu
+    provisionalUntil: "02-04-2019"
     extraSections:
       EMP:
         CRN: 63080
