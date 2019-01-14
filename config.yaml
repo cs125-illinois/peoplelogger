@@ -15,8 +15,6 @@ semesters:
     instructors:
       - name: Geoffrey Challen
         email: challen@illinois.edu
-    manualSectionAssignments:
-      anjalim3@illinois.edu: [ 'EMP' ]
     extraSections:
       EMP:
         CRN: 63080
