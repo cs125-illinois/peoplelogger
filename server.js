@@ -114,11 +114,17 @@ let queue = asyncLib.queue((unused, callback) => {
   }).then(() => {
     return mailman.mailman(config)
   }).then(() => {
-    return discourse.update(config)
+    if (!config.skipDiscourse) {
+      return discourse.update(config)
+    }
   }).then(() => {
-    return discourse.discourse(config)
+    if (!config.skipDiscourse) {
+      return discourse.discourse(config)
+    }
   }).then(() => {
-    return discourse.gravatars(config)
+    if (!config.skipDiscourse) {
+      return discourse.gravatars(config)
+    }
   }).then(() => {
     config.log.debug(`Done`)
     if (config.client) {
@@ -168,14 +174,18 @@ if (argv._.length === 0 && argv.oneshot) {
   })
 } else {
   let CronJob = require('cron').CronJob
-  let job = new CronJob('0 0 */2 * * *', async () => { // eslint-disable-line no-unused-vars
+  let job = new CronJob('0 0 * * * *', async () => { // eslint-disable-line no-unused-vars
     queue.push({})
   }, null, true, 'America/Chicago')
   queue.push({})
 }
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.log(reason.stack || reason)
+process.on('unhandledRejection', (err, promise) => {
+  console.log(err.stack || err)
+})
+process.on('uncaughtException', err => {
+  console.error(err.stack || err)
+  process.exit(-1)
 })
 
 // vim: ts=2:sw=2:et:ft=javascript

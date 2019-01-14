@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+
+'use strict'
+
+const _ = require('lodash')
+const jsYAML = require('js-yaml')
+const tmp = require('tmp')
+const fs = require('fs')
+const emailAddresses = require('email-addresses')
+const moment = require('moment-timezone')
+
+const chai = require('chai')
+const expect = chai.expect
+chai.use(require('dirty-chai'))
+const mongo = require('mongodb').MongoClient
+const people = require('../lib/people')
+
+let argv = require('minimist')(process.argv.slice(2))
+let config = _.extend(
+  jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
+  jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
+  argv
+)
+
+mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
+  const bestCollection = client.db('cs125').collection('best')
+
+  const retakes = await bestCollection.find({
+    semester: 'Fall2018',
+    'person.active': true,
+    'person.role': 'student',
+    'totals.withExtra.percent': { $lte: argv.may }
+  }).toArray()
+
+  client.close()
+
+  console.log("First Name,Last Name,UIN,NetID,Email,Letter,Percent,Must,Major")
+  _.each(retakes, ({ person, totals, letter, email }) => {
+    const { name, ID, major } = person
+    let CS = major ? major.includes('Computer Science') || major.includes('Computer Sci') : '?'
+    if (!CS) {
+      return
+    }
+    let must = totals.withExtra.percent <= argv.must
+    console.log(`${ name.last },${ name.first },${ ID },${ email.split('@')[0] },${ email },${ letter },${ totals.withExtra.percent },${ must ? "x" : "" },${ major }`)
+  })
+})
+
+// vim: ts=2:sw=2:et:ft=javascript

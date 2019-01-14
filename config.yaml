@@ -17,6 +17,16 @@ semesters:
       - name: Geoffrey Challen
         email: challen@illinois.edu
     provisionalUntil: "02-04-2019"
+    extraSections:
+      EMP:
+        CRN: 63080
+        type: Lecture
+        name: EMP
+        days: R
+        times:
+          start: 05:00PM
+          end: 06:50PM
+        location: 0216 Siebel Center for Comp Sci
   Fall2018:
     name: Fall 2018
     start: "08-27-2018"
