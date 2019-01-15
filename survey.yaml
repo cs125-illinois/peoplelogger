@@ -9,10 +9,10 @@ questions:
       - "What is your gender?"
     type: "single"
     options:
-      "Female": "F"
-      "Male": "M"
+      "F": "Female"
+      "M": "Male"
       "Other": "Other"
-      "Prefer not to say": "None"
+      "None": "Prefer not to say"
   hasLaptop:
     question:
       - "Do you have a laptop?"
