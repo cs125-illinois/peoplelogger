@@ -17,6 +17,7 @@ semesters:
       - name: Geoffrey Challen
         email: challen@illinois.edu
     provisionalUntil: "02-04-2019"
+    lateAdd: "01-17-2019"
     extraSections:
       EMP:
         CRN: 63080
