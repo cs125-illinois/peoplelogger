@@ -31,12 +31,12 @@ const ignore = [ 'mussulma@illinois.edu' ]
 mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
   let quizCollection = client.db('cs125').collection('quizGrades')
   let quizGrades = await quizCollection.find({
-    semester: 'Fall2018',
     course: 'proficiency',
     type: 'exam',
     latest: true,
     detailed: true,
-    email: { $nin: ignore }
+    email: { $nin: ignore },
+    score: { $gte: config.threshold || 0 }
   }).toArray()
   client.close()
 
