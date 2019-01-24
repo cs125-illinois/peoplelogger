@@ -19,6 +19,7 @@ const people = require('../lib/people')
 
 let argv = require('minimist')(process.argv.slice(2))
 let config = _.extend(
+  jsYAML.safeLoad(fs.readFileSync('proficiency.yaml', 'utf8')),
   jsYAML.safeLoad(fs.readFileSync('config.yaml', 'utf8')),
   jsYAML.safeLoad(fs.readFileSync('secrets.yaml', 'utf8')),
   argv
@@ -39,6 +40,15 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     email: { $nin: ignore }
   }).toArray()
   client.close()
+
+  if (config.manual) {
+    _.each(config.manual, (date, email) => {
+      quizGrades.push({
+        email,
+        received: moment.tz(new Date(date), config.timezone)
+      })
+    })
+  }
 
   if (argv.after) {
     const afterDate = moment.tz(new Date(argv.after), config.timezone)
