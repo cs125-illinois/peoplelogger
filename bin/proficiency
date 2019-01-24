@@ -27,7 +27,7 @@ let config = _.extend(
 
 npmPath.setSync()
 
-const ignore = [ 'mussulma@illinois.edu' ]
+const threshold = config.threshold || 0
 
 mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
   let quizCollection = client.db('cs125').collection('quizGrades')
@@ -36,8 +36,8 @@ mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client
     type: 'exam',
     latest: true,
     detailed: true,
-    email: { $nin: ignore },
-    score: { $gte: config.threshold || 0 }
+    email: { $nin: config.ignore },
+    score: { $gte: threshold }
   }).toArray()
   client.close()
 
