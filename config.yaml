@@ -13,6 +13,11 @@ semesters:
         email: challen@illinois.edu
     sheets:
       provisional: '1LhQNW-ZWKCv0LJfCN5yB3RiJcLDmM1Zt-hlnu3o5XzY'
+      staff: '17y4DzfRCD65WAlbmrQpbLtEH2-6F0E0ZkDSAFOk0M_M'
+      CAs: '1G6eu649ERQJ8DEXoYouWwXl45iHmuScc3fNhCPVQU20'
+      staffInfo: '1MBZWkhUVExP9suxNgIgnENExKt5N4qF9x1FQrq8-9Xw'
+      labs: '1jKOC26jMrsXYeJJ6zR2cXE5zwlNnFGtbT9_GI-qn1oo'
+      officeHours: '1ghR1jopsVG9yiNHjCbh2eSgnOPFSivV8vq2hfP44Y2w'
     provisionalUntil: "09-16-2019"
   Spring2019:
     name: Spring 2019
@@ -110,3 +115,11 @@ recordIgnoreKeys:
   - sawOfficeHours
 ADIgnoreUsers:
   - challen
+roles:
+  - head
+  - TA
+  - captain
+  - assistant
+  - developer
+  - assistant
+
