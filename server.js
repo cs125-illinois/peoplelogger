@@ -136,6 +136,7 @@ let queue = asyncLib.queue((unused, callback) => {
     callback()
   }).catch(err => {
     log.fatal(`Run failed: ${err}. Will retry later.`)
+    console.log(err.stack)
     if (argv.oneshot) {
       process.exit(-1)
     }
@@ -144,6 +145,7 @@ let queue = asyncLib.queue((unused, callback) => {
 }, 1)
 
 if (argv._.length === 0 && argv.oneshot) {
+  console.log("Blah")
   queue.push({})
 } else if (argv._.length !== 0) {
   config.log = log

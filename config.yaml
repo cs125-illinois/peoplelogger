@@ -5,7 +5,7 @@ semesters:
     name: Fall 2019
     start: "08-26-2019"
     end: "12-11-2019"
-    courses: 'https://courses.illinois.edu/search/schedule/2019/fall/CS/125?sess='
+    courses: 'https://courses.illinois.edu/search/schedule/2019/fall/CS/125'
     instructors:
       - name: Geoffrey Challen
         email: challen@illinois.edu
