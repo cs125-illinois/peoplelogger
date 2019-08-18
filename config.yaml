@@ -6,9 +6,14 @@ semesters:
     start: "08-26-2019"
     end: "12-11-2019"
     courses: 'https://courses.illinois.edu/search/schedule/2019/fall/CS/125'
+    combineLectures:
+      ALP: AL1
     instructors:
       - name: Geoffrey Challen
         email: challen@illinois.edu
+    sheets:
+      provisional: '1LhQNW-ZWKCv0LJfCN5yB3RiJcLDmM1Zt-hlnu3o5XzY'
+    provisionalUntil: "09-16-2019"
   Spring2019:
     name: Spring 2019
     start: "01-14-2019"
