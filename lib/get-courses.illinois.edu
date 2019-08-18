@@ -51,7 +51,7 @@ phantom.create()
           time = timePattern.exec(text)
           return
         }
-        if ($(cell).hasClass('adjh')) {
+        if ($(cell).hasClass('adjh') && !$(cell).hasClass('instructor')) {
           location = text
         }
       })
