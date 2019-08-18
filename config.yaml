@@ -122,3 +122,5 @@ roles:
   - assistant
   - developer
   - assistant
+discourseIgnore:
+  - nordick2@illinois.edu
