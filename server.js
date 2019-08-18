@@ -52,17 +52,17 @@ let callTable = {
   reset: reset.reset,
   state: state.state,
   staff: people.staff,
-  officeHours: people.addOfficeHours,
   students: people.students,
-  allowed: people.addAllowed,
-  survey: people.addSurvey,
   enrollment: enrollment.enrollment,
+  schedule: schedule.schedule,
   activeSections: state.activeSections,
   mailman: mailman.mailman,
   updateDiscourseUsers: discourse.update,
-  updateDiscourseGravatars: discourse.gravatars,
   discourse: discourse.discourse,
-  schedule: schedule.schedule
+  updateDiscourseGravatars: discourse.gravatars,
+  officeHours: people.addOfficeHours,
+  allowed: people.addAllowed,
+  survey: people.addSurvey,
 }
 
 let argv = require('minimist')(process.argv.slice(2))
