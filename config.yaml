@@ -19,6 +19,16 @@ semesters:
       labs: '1jKOC26jMrsXYeJJ6zR2cXE5zwlNnFGtbT9_GI-qn1oo'
       officeHours: '1ghR1jopsVG9yiNHjCbh2eSgnOPFSivV8vq2hfP44Y2w'
     provisionalUntil: "09-16-2019"
+    extraSections:
+      EMP:
+        CRN: 55186
+        type: Lecture
+        name: EMP
+        days: R
+        times:
+          start: 05:00PM
+          end: 06:50PM
+        location: 2310 Everitt Elec & Comp Engr Lab
   Spring2019:
     name: Spring 2019
     start: "01-14-2019"
