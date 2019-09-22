@@ -5,6 +5,7 @@ semesters:
     name: Fall 2019
     start: "08-26-2019"
     end: "12-11-2019"
+    lateAdd: "08-27-2019"
     courses: 'https://courses.illinois.edu/search/schedule/2019/fall/CS/125'
     combineLectures:
       ALP: AL1
@@ -29,6 +30,9 @@ semesters:
           start: 05:00PM
           end: 06:50PM
         location: 2310 Everitt Elec & Comp Engr Lab
+    teams:
+      blue: [ AYA, AYM, AYB, AYN, AYC, AYP, AYD, AYQ, AYE, AYR, AYF, AYS ]
+      orange: [ AYG, AYT, AYH, AYU, AYI, AYV, AYJ, AYW, AYK, AYX, AYL, AYY ]
   Spring2019:
     name: Spring 2019
     start: "01-14-2019"
