@@ -94,7 +94,7 @@ let queue = asyncLib.queue((unused, callback) => {
   config.runTime = moment()
   config.log = log
 
-  mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(client => {
+  mongo.connect(config.secrets.mongo, { useNewUrlParser: true, useUnifiedTopology: true }).then(client => {
     config.client = client
     config.database = client.db(config.databaseName)
   }).then(() => {
