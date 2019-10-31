@@ -87,7 +87,7 @@ if (config.debug) {
     level: 'warn'
   })
 }
-log.debug(_.omit(config, 'secrets'))
+// log.debug(_.omit(config, 'secrets'))
 expect(config).to.not.have.property('counter')
 
 let queue = asyncLib.queue((unused, callback) => {
@@ -150,7 +150,7 @@ if (argv._.length === 0 && argv.oneshot) {
   config.log = log
   config.runTime = moment()
 
-  mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(client => {
+  mongo.connect(config.secrets.mongo, { useNewUrlParser: true, useUnifiedTopology: true }).then(client => {
     config.client = client
     config.database = client.db(config.databaseName)
     let currentPromise = counter.counter(config)
