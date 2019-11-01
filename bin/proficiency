@@ -29,7 +29,7 @@ npmPath.setSync()
 
 const threshold = config.threshold || 0
 
-mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
+mongo.connect(config.secrets.mongo, { useNewUrlParser: true, useUnifiedTopology: true }).then(async client => {
   let quizCollection = client.db('cs125').collection('quizGrades')
   let quizGrades = await quizCollection.find({
     course: 'proficiency',
