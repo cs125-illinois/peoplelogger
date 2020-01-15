@@ -1,7 +1,5 @@
 subject: CS
 number: 125
-skipDiscourse: true
-skipGravatars: true
 semesters:
   Spring2020:
     name: Spring 2020
