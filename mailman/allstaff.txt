@@ -56,7 +56,7 @@ moderator = []
 # This description is used when the mailing list is listed with other
 # mailing lists, or in headers, and so forth.  It should be as succinct
 # as you can get it, while still identifying what the list is.
-description = 'CS 125 All Staff: TAs, CAs, CDs'
+description = 'CS 125 All Staff'
 
 # The text will be treated as html except that newlines will be
 # translated to <br> - so you can use links, preformatted text, etc, but

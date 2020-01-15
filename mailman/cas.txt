@@ -1,6 +1,6 @@
 # -*- python -*-
 # -*- coding: utf-8 -*-
-## "assistants" mailing list configuration settings
+## "cas" mailing list configuration settings
 ## captured on Wed Aug 15 14:47:39 2018
 
 ## General options
@@ -14,7 +14,7 @@
 # address (e.g., in subscribe confirmation notices), so it should not be
 # otherwise altered.  (Email addresses are not case sensitive, but they
 # are sensitive to almost everything else :-)
-real_name = 'assistants'
+real_name = 'cas'
 
 # There are two ownership roles associated with each mailing list.  The
 # list administrators are the people who have ultimate control over all
@@ -56,7 +56,7 @@ moderator = []
 # This description is used when the mailing list is listed with other
 # mailing lists, or in headers, and so forth.  It should be as succinct
 # as you can get it, while still identifying what the list is.
-description = 'CS 125 CAs'
+description = 'CS 125 Course Associates and Assistants'
 
 # The text will be treated as html except that newlines will be
 # translated to <br> - so you can use links, preformatted text, etc, but
@@ -691,7 +691,7 @@ digest_volume_frequency = 1
 # This section allows you to configure subscription and membership
 # exposure policy.  You can also control whether this list is public or
 # not.  See also the <a
-# href="https://cs125.cs.illinois.edu/mailman/admin/assistants/archive">Archival
+# href="https://cs125.cs.illinois.edu/mailman/admin/cas/archive">Archival
 # Options</a> section for separate archive-related privacy settings.
 
 # Advertise this list when people ask what lists are on this machine?
