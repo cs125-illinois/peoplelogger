@@ -22,7 +22,7 @@ let config = _.extend(
   argv
 )
 
-mongo.connect(config.secrets.mongo, { useNewUrlParser: true }).then(async client => {
+mongo.connect(config.secrets.mongo, { useNewUrlParser: true, useUnifiedTopology: true }).then(async client => {
   const people = client.db('cs125').collection('people')
 
   const CAs = await people.find({
