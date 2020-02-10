@@ -20,6 +20,7 @@ semesters:
       labs: '19pMTOaMP53r9oipTgmmP43P0ZaHNa8gZC3ZuNqf8EGI'
       officeHours: '15n-RFi30vx2TJ-zdRlGb-0YKIyv2VdWsoNbysmdLnlE'
       trainedStaff: '1X4tb_SooBW2aeJnlVl2OiIhsIMRfuC9zlGh7-lMvlN0'
+    considerPreviousAsTrained: true
     provisionalUntil: "02-10-2020"
     extraSections:
       EMP:
