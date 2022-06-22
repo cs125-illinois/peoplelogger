@@ -33,7 +33,7 @@
     "email-validator": "^2.0.4",
     "eslint-plugin-standard": "^4.0.1",
     "google-spreadsheet-to-json": "^1.0.0",
-    "got": "^10.5.5",
+    "got": "^11.8.5",
     "gravatar": "^1.8.0",
     "image-size": "^0.8.3",
     "image-type": "^4.1.0",
