@@ -41,7 +41,7 @@
     "js-yaml": "^3.13.1",
     "lodash": "^4.17.15",
     "minimist": "^1.2.0",
-    "moment": "^2.24.0",
+    "moment": "^2.29.4",
     "moment-timezone": "^0.5.27",
     "mongodb": "^3.5.2",
     "npm-path": "^2.0.4",
