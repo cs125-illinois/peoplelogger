@@ -42,7 +42,7 @@
     "lodash": "^4.17.15",
     "minimist": "^1.2.0",
     "moment": "^2.24.0",
-    "moment-timezone": "^0.5.27",
+    "moment-timezone": "^0.5.35",
     "mongodb": "^3.5.2",
     "npm-path": "^2.0.4",
     "phantom": "^6.3.0",
